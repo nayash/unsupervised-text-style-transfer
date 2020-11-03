@@ -2,6 +2,8 @@ from torch import nn
 import torch.functional as F
 from torch.nn import init
 
+from train import src2src, word2idx, SOS_SRC, tgt2tgt, SOS_TGT, src2tgt, tgt2src
+
 
 class Encoder(nn.Module):
     def __init__(self, input_size, hidden_size, word_emb_tensor,batch_first=True,
