@@ -1,4 +1,4 @@
-from models import GeneratorModel
+from models import *
 import os
 import pickle
 from pathlib import Path
@@ -25,6 +25,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 import torch.autograd.profiler as profiler
+from constants import *
 
 '''
 supported arguments
@@ -81,6 +82,8 @@ arg_parser.add_argument('-r', '--resume', default=False, action='store_true',
                              'please note that with this option you must pass existing "expid" argument')
 arg_parser.add_argument('--test', default=False, action='store_true',
                         help='short test run')
+arg_parser.add_argument('--device', default='cuda', help='training/inference to be done on this device. supported'
+                                                         'values are "cuda" (default) or "cpu"')
 
 args = arg_parser.parse_args()
 source_file_path = os.path.abspath(args.insrc)
@@ -90,19 +93,11 @@ run_id = args.expid
 force_preproc = args.force
 is_resume = args.resume
 
+
 run_path = OUTPUT_PATH / 'runs' / run_id
 log_path = run_path / 'logs'
 data_cp_path = OUTPUT_PATH / 'data_cp.pk'
 tensors_path = OUTPUT_PATH / 'data_tensors_cp.pt'
-
-src2tgt = 'C2NQ'
-tgt2src = 'NQ2C'
-src2src = 'C2C'
-tgt2tgt = 'NQ2NQ'
-SOS_SRC = 'SOSSRC'
-SOS_TGT = 'SOSTGT'
-tgt_label = 1
-src_label = 0
 
 
 with open(source_file_path, encoding='utf-8',
@@ -173,9 +168,9 @@ for k, v in word2idx.items():
 
 
 def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len,
-                   prefix=None, shuffle=False, type='neg', dropout=False):
+                   prefix=None, shuffle=False, type='src', dropout=False):
     temp = []
-    sos = word2idx[SOS_SRC] if type == 'neg' else word2idx[SOS_TGT]
+    sos = word2idx[SOS_SRC] if type == 'src' else word2idx[SOS_TGT]
     temp.append(sos)
     if prefix:
         for _ in prefix.split():
@@ -310,17 +305,19 @@ if force_preproc or not tensors_path.exists():
     x_tgt = []
     y_tgt = []
 
+    # not used for now. need to figure out how to implement without breaking gradients graph
     permute_prob = config_dict['permute_prob']
     drop_noise = config_dict['drop_noise']
+    noisy_input = bool(config_dict['noisy_input'])
 
     for i, src_sent in enumerate(src_sents):
-        tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='neg')
-        x_src.append(get_noisy_tensor(tensor))
+        tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
+        x_src.append(get_noisy_tensor(tensor) if noisy_input else tensor)
         y_src.append(tensor.clone())
 
     for i, q in enumerate(tgt_sents):
         tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='pos')
-        x_tgt.append(get_noisy_tensor(tensor))
+        x_tgt.append(get_noisy_tensor(tensor) if noisy_input else tensor)
         y_tgt.append(tensor.clone())
 
     x_src = torch.stack(x_src)
@@ -345,7 +342,7 @@ if force_preproc or not tensors_path.exists():
                        'x_tgt': x_tgt, 'y_tgt': y_tgt}
     torch.save(data_tensors_cp, str(tensors_path))
 
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+device = 'cuda:0' if torch.cuda.is_available() and args.device == 'cuda' else 'cpu'
 if device == 'cpu':
     logger.append_log('warning!!! CPU device is being used')
 data_tensors_cp = torch.load(tensors_path)
@@ -386,8 +383,8 @@ logger.append_log('train/test size', len(dl_src_train), len(dl_src_test))
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
 generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
-                           config_dict['batch_size'], word_emb_tensor, layers=config_dict['layers'],
-                           bidirectional=config_dict['bidir'], lstm_do=config_dict['lstm_do'])
+                           config_dict['batch_size'], word_emb_tensor, device, layers=config_dict['layers'],
+                           bidirectional=bool(config_dict['bidir']), lstm_do=config_dict['lstm_do'])
 clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict['hidden_dim']
 lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
 assert not isNan(generator.encoder.emb.weight)
@@ -509,14 +506,14 @@ for epoch in range(resume_epoch, epochs):
             # 1. auto-encode
             with profiler.record_function("auto-encode"):
                 ## 1.1 src to src
-                generator.set_mode(src2src)
+                generator.set_mode(src2src, word2idx)
                 _, gen_raw, _ = generator(in_src)
                 loss_auto_src = 0
                 for k in range(gen_raw.size(0)):
                     loss_auto_src += loss_ce(gen_raw[k], org_src[k])
 
                 ## 1.2 tgt to tgt
-                generator.set_mode(tgt2tgt)
+                generator.set_mode(tgt2tgt, word2idx)
                 _, gen_raw1, _ = generator(in_tgt)
                 loss_auto_tgt = 0
                 for k in range(gen_raw1.size(0)):
@@ -527,10 +524,10 @@ for epoch in range(resume_epoch, epochs):
             # 2. cross domain
             with profiler.record_function("cross-domain"):
                 ## 2.1 src to tgt
-                generator.set_mode(src2tgt)
+                generator.set_mode(src2tgt, word2idx)
                 gen_out_src, _, enc_out_src = generator(org_src)
 
-                generator.set_mode(tgt2src)  # need to add noise to gen_our_src and preserve gradient too!!!
+                generator.set_mode(tgt2src, word2idx)  # need to add noise to gen_our_src and preserve gradient too!!!
                 gen_bt_src2tgt, gen_out_bt_raw, _ = generator(row_apply(gen_out_src, get_noisy_tensor_grad))
 
                 loss_cd_s2t = 0
@@ -538,10 +535,10 @@ for epoch in range(resume_epoch, epochs):
                     loss_cd_s2t += loss_ce(gen_out_bt_raw[k], org_src[k])
 
                 ## 2.2 tgt to src
-                generator.set_mode(tgt2src)
+                generator.set_mode(tgt2src, word2idx)
                 gen_out_tgt, _, enc_out_tgt = generator(org_tgt)
 
-                generator.set_mode(src2tgt)
+                generator.set_mode(src2tgt, word2idx)
                 gen_bt_tgt2src, gen_out_bt_raw1, _ = generator(row_apply(gen_out_tgt, get_noisy_tensor_grad))
 
                 loss_cd_t2s = 0
@@ -605,10 +602,10 @@ for epoch in range(resume_epoch, epochs):
                 if not skip_disc:
                     # combine and shuffle both encoder outputs
                     # with autocast():
-                    generator.set_mode(src2tgt)
+                    generator.set_mode(src2tgt, word2idx)
                     _, _, enc_out_src1 = generator(in_src)
 
-                    generator.set_mode(tgt2src)
+                    generator.set_mode(tgt2src, word2idx)
                     _, _, enc_out_tgt1 = generator(in_tgt)
 
                     # no mix train now.
@@ -725,7 +722,7 @@ for epoch in range(resume_epoch, epochs):
                  'last_val_loss': val_loss
                  }
 
-        torch.save(state, run_path + '/state.pt')
+        torch.save(state, run_path / 'state.pt')
         if is_resume:
             # lr_reduce_patience = 2
             # early_stop_patience = lr_reduce_patience * 3
@@ -750,10 +747,13 @@ for epoch in range(resume_epoch, epochs):
     if epoch % 2 == 0:
         try:
             logger.append_log('samples:\n', log_samples_text(samples, epoch), '\n')
-            with open(run_path + '/samples.txt', 'a') as file:
+            with open(run_path / 'samples.txt', 'a') as file:
                 file.write(log_samples_text(samples, epoch))
-        except:
-            logger.append_log('log failed')
+        except Exception as e:
+            logger.append_log('log failed', e)
+
+        if test_mode:
+            break
 
 #     if early_stop_counter > early_stop_patience:
 #         logger.append_log('stopping early at {} epoch and loss {}'.format(epoch, val_loss))

@@ -20,5 +20,6 @@
   "disc_lr_sched": "cyclic",
   "wgt_loss_auto": 1,
   "wgt_loss_cd": 1,
-  "wgt_loss_adv": 2
+  "wgt_loss_adv": 2,
+  "noisy_input": "True"
 }

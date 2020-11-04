@@ -1,15 +1,16 @@
+import torch
 from torch import nn
 import torch.functional as F
 from torch.nn import init
-
-from train import src2src, word2idx, SOS_SRC, tgt2tgt, SOS_TGT, src2tgt, tgt2src
+from constants import *
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, word_emb_tensor,batch_first=True,
+    def __init__(self, input_size, hidden_size, word_emb_tensor, device, batch_first=True,
                  layers=1, bidirectional=False, dropout=0.0):
         super(Encoder, self).__init__()
 
+        self.device = device
         self.batch_first = batch_first
         self.layers = layers
         self.hidden_size = hidden_size
@@ -28,17 +29,16 @@ class Encoder(nn.Module):
         if not self.batch_first:
             emb = emb.permute(1, 0, 2)
 
-        # (o,h) => (torch.Size([128, 20, 200]),torch.Size([2, 128, 100]),
-        # torch.Size([2, 128, 100]))
+        # o,h1,h2 => [batch_size, max_len, emb_dim], [layers*num_dir, batch, emb_dim]
         o, h = self.lstm(emb, hidden)
         return o, h
 
     def initHidden(self, batch_size):
-        return (torch.zeros(self.layers*(1 if not self.bidirectional else 2),
-                            batch_size, self.hidden_size, device=device,
+        return (torch.zeros(self.layers * (1 if not self.bidirectional else 2),
+                            batch_size, self.hidden_size, device=self.device,
                             requires_grad=True),
-                torch.zeros(self.layers*(1 if not self.bidirectional else 2),
-                            batch_size, self.hidden_size, device=device,
+                torch.zeros(self.layers * (1 if not self.bidirectional else 2),
+                            batch_size, self.hidden_size, device=self.device,
                             requires_grad=True))
 
     def weights_init(self, m):
@@ -53,10 +53,11 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_size, hidden_size, word_emb_tensor, batch_first=True,
+    def __init__(self, output_size, hidden_size, word_emb_tensor, device, batch_first=True,
                  layers=1, bidirectional=False, dropout=0.0):
         super(Decoder, self).__init__()
 
+        self.device = device
         self.batch_first = batch_first
         self.output_size = output_size  # output vocab
         self.bidirectional = bidirectional
@@ -68,7 +69,7 @@ class Decoder(nn.Module):
                             num_layers=layers, bidirectional=bidirectional,
                             dropout=dropout)  # input_size = len of sequence
         self.linear = nn.Linear(
-            (1 if not self.bidirectional else 2)*hidden_size, output_size)
+            (1 if not self.bidirectional else 2) * hidden_size, output_size)
         self.lrelu = nn.LeakyReLU(0.2)
         self.log_softmax = nn.LogSoftmax(dim=2)
 
@@ -81,11 +82,11 @@ class Decoder(nn.Module):
         return x, h
 
     def initHidden(self, batch_size):
-        return (torch.zeros(self.layers*(1 if not self.bidirectional else 2),
-                            batch_size, self.hidden_size, device=device,
+        return (torch.zeros(self.layers * (1 if not self.bidirectional else 2),
+                            batch_size, self.hidden_size, device=self.device,
                             requires_grad=True),
-                torch.zeros(self.layers*(1 if not self.bidirectional else 2),
-                            batch_size, self.hidden_size, device=device,
+                torch.zeros(self.layers * (1 if not self.bidirectional else 2),
+                            batch_size, self.hidden_size, device=self.device,
                             requires_grad=True))
 
     def weights_init(self, m):
@@ -100,35 +101,33 @@ class Decoder(nn.Module):
 
 
 class GeneratorModel(nn.Module):
-    def __init__(self, input_vocab, hidden_size, batch_size, word_emb_tensor,
+    def __init__(self, input_vocab, hidden_size, batch_size, word_emb_tensor, device,
                  batch_first=True, layers=1, bidirectional=False, lstm_do=0.0):
         super(GeneratorModel, self).__init__()
+        self.device = device
         self.batch_size = batch_size
         self.batch_first = batch_first
-        self.encoder = Encoder(input_vocab, hidden_size, word_emb_tensor, batch_first=batch_first,
-                               bidirectional=bidirectional, layers=layers,
-                               dropout=lstm_do)
-        self.decoder = Decoder(input_vocab, hidden_size, word_emb_tensor, layers=layers,
-                               bidirectional=bidirectional,
-                               batch_first=batch_first, dropout=lstm_do)
+        self.encoder = Encoder(input_vocab, hidden_size, word_emb_tensor, device, batch_first=batch_first,
+                               bidirectional=bidirectional, layers=layers, dropout=lstm_do)
+        self.decoder = Decoder(input_vocab, hidden_size, word_emb_tensor, device, layers=layers,
+                               bidirectional=bidirectional,batch_first=batch_first, dropout=lstm_do)
         self.enc_sos = None
         self.dec_sos = None
         # self.linear_topk = nn.Linear()
 
     def forward(self, x):
-        enc_out, h = self.encoder(x, self.encoder.initHidden(
-            x.size(self.get_batch_index(self.batch_first))))
+        _ = self.encoder.initHidden(x.size(self.get_batch_index(self.batch_first)))
+        enc_out, h = self.encoder(x, self.encoder.initHidden(x.size(self.get_batch_index(self.batch_first))))
         decoder_out = []
         decoder_raw = []
 
-        decoder_input = torch.tensor([[self.dec_sos]]*x.size(
-            self.get_batch_index(self.batch_first)), device=device)
+        decoder_input = torch.tensor([[self.dec_sos]] * x.size(
+            self.get_batch_index(self.batch_first)), device=self.device)
 
         decoder_hidden = h
 
-        for i in range(max_len):
-            out, decoder_hidden = self.decoder(
-                decoder_input, decoder_hidden)  # out=> [1, 1, vocab]
+        for i in range(enc_out.size(1)):
+            out, decoder_hidden = self.decoder(decoder_input, decoder_hidden)  # out=> [1, 1, vocab]
             pred, idx = out.topk(1)
             decoder_input = idx.view(idx.size(0), 1)
             decoder_out.append(idx.squeeze())
@@ -145,7 +144,7 @@ class GeneratorModel(nn.Module):
     def get_batch_index(self, batch_first):
         return 0 if batch_first else 1
 
-    def set_mode(self, mode):
+    def set_mode(self, mode, word2idx):
         if mode == src2src:
             self.enc_sos = word2idx[SOS_SRC]
             self.dec_sos = word2idx[SOS_SRC]
@@ -197,14 +196,14 @@ class LatentClassifier(nn.Module):
         self.hidden_nodes = hidden_nodes
 
         self.linear1 = nn.Linear(input_shape, hidden_nodes)
-        self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes/2))
-        self.linear3 = nn.Linear(int(hidden_nodes/2), int(hidden_nodes/8))
+        self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes / 2))
+        self.linear3 = nn.Linear(int(hidden_nodes / 2), int(hidden_nodes / 8))
         # self.linear4 = nn.Linear(int(hidden_nodes/4), int(hidden_nodes/8))
-        self.linear5 = nn.Linear(int(hidden_nodes/8), int(hidden_nodes/32))
+        self.linear5 = nn.Linear(int(hidden_nodes / 8), int(hidden_nodes / 32))
         # self.linear6 = nn.Linear(int(hidden_nodes/16), int(hidden_nodes/32))
-        self.linear7 = nn.Linear(int(hidden_nodes/32), output_shape)
-        self.bn3 = nn.BatchNorm1d(num_features=int(hidden_nodes/8))
-        self.bn5 = nn.BatchNorm1d(num_features=int(hidden_nodes/32))
+        self.linear7 = nn.Linear(int(hidden_nodes / 32), output_shape)
+        self.bn3 = nn.BatchNorm1d(num_features=int(hidden_nodes / 8))
+        self.bn5 = nn.BatchNorm1d(num_features=int(hidden_nodes / 32))
         self.lrelu = nn.LeakyReLU(0.2)
 
     def forward(self, input):
