@@ -3,6 +3,7 @@ import calendar
 import unicodedata
 import numpy as np
 import torch
+import time
 
 
 def unicodeToAscii(s):
@@ -128,3 +129,7 @@ def permute_tensor(tensor, k=3):
     c = torch.FloatTensor(tensor.size(0)).uniform_(
         0, k+1)+torch.arange(tensor.size(0))
     return tensor[torch.argsort(c)]
+
+
+def get_readable_ctime():
+    return time.strftime("%d-%m-%Y %H_%M_%S")

@@ -73,17 +73,26 @@ arg_parser.add_argument('-e', '--expid', default='temp',
                         to this experiment will be stored in a specific \
                         folder. If passed run_id already exists, exception \
                         is be thrown. Use special "temp" for test runs.')
+arg_parser.add_argument('--cleanfunc', default='clean_text_yelp',
+                        help='you can implement your own text cleaning function '
+                             'in utils.py, suitable for your data or use one of '
+                             'the already implemented functions. function should'
+                             ' accept a sentence as argument. for e.g. see '
+                             '"clean_text" func in utils.py. '
+                             'Default = clean_text_yelp')
 arg_parser.add_argument('-f', '--force', default=False, action='store_true',
                         help='if passed then the data clean up processing \
                         is done again instead of of using the saved data \
                         checkpoints')
 arg_parser.add_argument('-r', '--resume', default=False, action='store_true',
-                        help='if passed then training is resumed from saved states.'
-                             'please note that with this option you must pass existing "expid" argument')
+                        help='if passed then training is resumed from saved '
+                             'states. please note that with this option '
+                             'you must pass existing "expid" argument')
 arg_parser.add_argument('--test', default=False, action='store_true',
                         help='short test run')
-arg_parser.add_argument('--device', default='cuda', help='training/inference to be done on this device. supported'
-                                                         'values are "cuda" (default) or "cpu"')
+arg_parser.add_argument('--device', default='cuda',
+                        help='training/inference to be done on this device.'
+                             ' supported values are "cuda" (default) or "cpu"')
 
 args = arg_parser.parse_args()
 source_file_path = os.path.abspath(args.insrc)
@@ -92,13 +101,12 @@ config_path = os.path.abspath(args.config)
 run_id = args.expid
 force_preproc = args.force
 is_resume = args.resume
-
+clean_text_func = locals()[args.cleanfunc]
 
 run_path = OUTPUT_PATH / 'runs' / run_id
 log_path = run_path / 'logs'
 data_cp_path = OUTPUT_PATH / 'data_cp.pk'
 tensors_path = OUTPUT_PATH / 'data_tensors_cp.pt'
-
 
 with open(source_file_path, encoding='utf-8',
           errors='ignore') as file:
@@ -112,7 +120,8 @@ if not run_path.exists():
     os.makedirs(run_path)
 else:
     if run_id != 'temp' and not is_resume:
-        raise Exception('expid already exists. please pass unique expid or pass "-r" argument')
+        raise Exception('expid already exists. '
+                        'please pass unique expid or pass "-r" argument')
 
 logger = Logger(str(log_path), run_id, std_out=True)
 with open(config_path, 'r') as file:
@@ -122,8 +131,8 @@ logger.append_log('config: ', config_dict)
 
 if force_preproc or not data_cp_path.exists():
     logger.append_log('cleaning up sentences...')
-    src_sents = [clean_text_yelp(sent) for sent in tqdm(src_sents)]
-    tgt_sents = [clean_text_yelp(sent) for sent in tqdm(tgt_sents)]
+    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)]
+    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)]
 
     logger.append_log('building vocabulary...')
     words = word_tokenize(' '.join(src_sents))
@@ -291,8 +300,10 @@ def log_samples_text(samples, epoch):
     text = '-------------epoch=' + str(epoch) + '-------------\n'
     for sample in samples[::int(len(samples) / 5)]:
         for i in range(len(sample[0])):
-            cd1 = 'CD src2tgt =>' + sample[0][i] + '-->' + sample[1][i] + '-->' + sample[2][i]
-            cd2 = 'CD tgt2src =>' + sample[3][i] + '-->' + sample[4][i] + '-->' + sample[5][i]
+            cd1 = 'CD src2tgt =>' + sample[0][i] + '-->' + sample[1][
+                i] + '-->' + sample[2][i]
+            cd2 = 'CD tgt2src =>' + sample[3][i] + '-->' + sample[4][
+                i] + '-->' + sample[5][i]
             text += cd1 + '\n' + cd2 + '\n\n'
         text += '\n*********************\n'
     return text
@@ -366,26 +377,35 @@ test_size = total_samples - train_size
 ds_src = TensorDataset(x_src, y_src)
 ds_tgt = TensorDataset(x_tgt, y_tgt)
 ds_src_train, ds_src_test = random_split(ds_src, [train_size, test_size],
-                                         generator=torch.Generator().manual_seed(seed))
+                                         generator=torch.Generator().manual_seed(
+                                             seed))
 ds_tgt_train, ds_tgt_test = random_split(ds_tgt, [train_size, test_size],
-                                         generator=torch.Generator().manual_seed(seed))
+                                         generator=torch.Generator().manual_seed(
+                                             seed))
 
-dl_src_train = DataLoader(ds_src_train, batch_size=config_dict['batch_size'], drop_last=True, num_workers=0,
+dl_src_train = DataLoader(ds_src_train, batch_size=config_dict['batch_size'],
+                          drop_last=True, num_workers=0,
                           pin_memory=False)
-dl_tgt_train = DataLoader(ds_tgt_train, batch_size=config_dict['batch_size'], drop_last=True, num_workers=0,
+dl_tgt_train = DataLoader(ds_tgt_train, batch_size=config_dict['batch_size'],
+                          drop_last=True, num_workers=0,
                           pin_memory=False)
 
-dl_src_test = DataLoader(ds_src_test, batch_size=1)
-dl_tgt_test = DataLoader(ds_tgt_test, batch_size=1)
+dl_src_test = DataLoader(ds_src_test, batch_size=config_dict['batch_size'],
+                         drop_last=True)
+dl_tgt_test = DataLoader(ds_tgt_test, batch_size=config_dict['batch_size'],
+                         drop_last=True)
 
 logger.append_log('train/test size', len(dl_src_train), len(dl_src_test))
 
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
 generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
-                           config_dict['batch_size'], word_emb_tensor, device, layers=config_dict['layers'],
-                           bidirectional=bool(config_dict['bidir']), lstm_do=config_dict['lstm_do'])
-clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict['hidden_dim']
+                           config_dict['batch_size'], word_emb_tensor, device,
+                           layers=config_dict['layers'],
+                           bidirectional=bool(config_dict['bidir']),
+                           lstm_do=config_dict['lstm_do'])
+clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
+    'hidden_dim']
 lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
 assert not isNan(generator.encoder.emb.weight)
 # generator.half(), lat_clf.half()
@@ -405,35 +425,82 @@ mode = config_dict['mode']
 
 loss_disc = nn.BCEWithLogitsLoss()  # BCE doesn't use sigmoid internally
 loss_ce = nn.NLLLoss()  # nn.CrossEntropyLoss()
-# optimG = torch.optim.Adam(generator.parameters(), lr=config_dict['gen_lr'], betas=(0.5, 0.999))
-optimG = torch.optim.RMSprop(generator.parameters(), lr=config_dict['gen_lr'], alpha=0.99, eps=1e-08,
+# optimG = torch.optim.Adam(generator.parameters(), lr=config_dict['gen_lr'],
+#                           betas=(0.5, 0.999))
+optimG = torch.optim.RMSprop(generator.parameters(), lr=config_dict['gen_lr'],
+                             alpha=0.99, eps=1e-08,
                              weight_decay=0, momentum=0.9, centered=False)
-# optimD = torch.optim.Adam(lat_clf.parameters(), lr=config_dict['clf_lr'], betas=(0.5, 0.999))
-optimD = torch.optim.RMSprop(lat_clf.parameters(), lr=config_dict['clf_lr'], alpha=0.99, eps=1e-08,
+# optimD = torch.optim.Adam(lat_clf.parameters(), lr=config_dict['clf_lr'],
+#                           betas=(0.5, 0.999))
+optimD = torch.optim.RMSprop(lat_clf.parameters(), lr=config_dict['clf_lr'],
+                             alpha=0.99, eps=1e-08,
                              weight_decay=0, momentum=0.9, centered=False)
 
 if config_dict['gen_lr_sched'] == 'cyclic':
-    lr_sched_G = torch.optim.lr_scheduler.CyclicLR(optimG, base_lr, max_lr, step_size_up=step_size,
-                                                   step_size_down=None, mode=mode, gamma=1.0,
-                                                   scale_mode='cycle', last_epoch=-1)
+    lr_sched_G = torch.optim.lr_scheduler.CyclicLR(optimG, base_lr, max_lr,
+                                                   step_size_up=step_size,
+                                                   step_size_down=None,
+                                                   mode=mode, gamma=1.0,
+                                                   scale_mode='cycle',
+                                                   last_epoch=-1)
 else:
     lr_sched_G = torch.optim.lr_scheduler.ReduceLROnPlateau(optimG, mode='min',
-                                                            factor=lr_reduce_factor, patience=lr_reduce_patience,
-                                                            verbose=True, threshold=0.00001, threshold_mode='rel',
-                                                            cooldown=0, min_lr=1e-8, eps=1e-08)
+                                                            factor=lr_reduce_factor,
+                                                            patience=lr_reduce_patience,
+                                                            verbose=True,
+                                                            threshold=0.00001,
+                                                            threshold_mode='rel',
+                                                            cooldown=0,
+                                                            min_lr=1e-8,
+                                                            eps=1e-08)
 
 if config_dict['disc_lr_sched'] == 'cyclic':
-    lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD, 1e-6, 1e-5, step_size_up=2000,
-                                                   step_size_down=None, mode='triangular', gamma=1.0,
-                                                   scale_mode='cycle', last_epoch=-1)
+    lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,
+                                                   config_dict['disc_base_lr'],
+                                                   config_dict['disc_max_lr'],
+                                                   step_size_up=2000,
+                                                   step_size_down=None,
+                                                   mode='triangular', gamma=1.0,
+                                                   scale_mode='cycle',
+                                                   last_epoch=-1)
 else:
     lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD, mode='min',
-                                                            factor=lr_reduce_factorD, patience=lr_reduce_patienceD,
-                                                            verbose=True, threshold=0.00001, threshold_mode='rel',
-                                                            cooldown=0, min_lr=1e-8, eps=1e-08)
-
+                                                            factor=lr_reduce_factorD,
+                                                            patience=lr_reduce_patienceD,
+                                                            verbose=True,
+                                                            threshold=0.00001,
+                                                            threshold_mode='rel',
+                                                            cooldown=0,
+                                                            min_lr=1e-8,
+                                                            eps=1e-08)
 
 # training code
+
+
+def eval_model_tensor(generator, x, y, mode, word2idx):
+    generator.set_mode(mode, word2idx)
+    input = x if len(x.size()) > 1 \
+        else x.view(1, -1)
+    gen_out, gen_raw, enc_out = generator(input)
+    loss = 0
+    for k in range(gen_raw.size(0)):
+        loss += loss_ce(gen_raw[k], y[k])
+
+    return loss.item()
+
+
+def eval_model_dl(generator, dl_src, dl_tgt, word2idx):
+    generator.eval()
+    loss = 0
+    for x, y in dl_src:
+        loss += eval_model_tensor(generator, x, y, src2tgt, word2idx)
+
+    for x, y in dl_tgt:
+        loss += eval_model_tensor(generator, x, y, tgt2src, word2idx)
+
+    generator.train()
+    return loss/(len(dl_src)+len(dl_tgt))
+
 
 epochs = config_dict['epoch']
 train_lossesG = []
@@ -469,15 +536,18 @@ if is_resume:
     lat_clf.to(device)
     lr_reduce_patience = 10
     early_stop_patience = 50
-    logger.append_log('lr_reduce_patience and early_stop_patience changed', lr_reduce_patience, early_stop_patience)
+    logger.append_log('lr_reduce_patience and early_stop_patience changed',
+                      lr_reduce_patience, early_stop_patience)
     logger.append_log('loaded previous saved model')
 
 writer = SummaryWriter(run_path, max_queue=1, flush_secs=1)
 # writer.add_text('run_changes', run_changes, lambda_adv)
-logger.append_log('training start time', time.ctime())
+logger.append_log('training start time', get_readable_ctime())
 
-src_label_vec = torch.tensor([src_label] * config_dict['batch_size'], requires_grad=False).float().to(device)
-tgt_label_vec = torch.tensor([tgt_label] * config_dict['batch_size'], requires_grad=False).float().to(device)
+src_label_vec = torch.tensor([src_label] * config_dict['batch_size'],
+                             requires_grad=False).float().to(device)
+tgt_label_vec = torch.tensor([tgt_label] * config_dict['batch_size'],
+                             requires_grad=False).float().to(device)
 
 generator.train()
 lat_clf.train()
@@ -491,12 +561,16 @@ for epoch in range(resume_epoch, epochs):
     epoch_loss_D = []
     epoch_start_time = time.time()
     samples = []
-    for iter_no, (data_src, data_tgt) in enumerate(zip(dl_src_train, dl_tgt_train)):
-        with profiler.profile(record_shapes=True, profile_memory=True, use_cuda=True, enabled=False) as prof:
+    for iter_no, (data_src, data_tgt) in enumerate(
+            zip(dl_src_train, dl_tgt_train)):
+        with profiler.profile(record_shapes=True, profile_memory=True,
+                              use_cuda=True, enabled=False) as prof:
             iter_start_time = time.time()
 
-            in_src, in_tgt = data_src[0], data_tgt[0]  # noisy, torch.Size([50, 21]) torch.Size([50])
-            org_src, org_tgt = data_src[1], data_tgt[1]  # non-noisy original sentence tensors
+            in_src, in_tgt = data_src[0], data_tgt[
+                0]  # noisy, torch.Size([50, 21]) torch.Size([50])
+            org_src, org_tgt = data_src[1], data_tgt[
+                1]  # non-noisy original sentence tensors
 
             optimD.zero_grad()
             optimG.zero_grad()
@@ -527,8 +601,9 @@ for epoch in range(resume_epoch, epochs):
                 generator.set_mode(src2tgt, word2idx)
                 gen_out_src, _, enc_out_src = generator(org_src)
 
-                generator.set_mode(tgt2src, word2idx)  # need to add noise to gen_our_src and preserve gradient too!!!
-                gen_bt_src2tgt, gen_out_bt_raw, _ = generator(row_apply(gen_out_src, get_noisy_tensor_grad))
+                generator.set_mode(tgt2src, word2idx)
+                gen_bt_src2tgt, gen_out_bt_raw, _ = generator(
+                    row_apply(gen_out_src, get_noisy_tensor_grad))
 
                 loss_cd_s2t = 0
                 for k in range(gen_out_bt_raw.size(0)):
@@ -539,7 +614,8 @@ for epoch in range(resume_epoch, epochs):
                 gen_out_tgt, _, enc_out_tgt = generator(org_tgt)
 
                 generator.set_mode(src2tgt, word2idx)
-                gen_bt_tgt2src, gen_out_bt_raw1, _ = generator(row_apply(gen_out_tgt, get_noisy_tensor_grad))
+                gen_bt_tgt2src, gen_out_bt_raw1, _ = generator(
+                    row_apply(gen_out_tgt, get_noisy_tensor_grad))
 
                 loss_cd_t2s = 0
                 for k in range(gen_out_bt_raw1.size(0)):
@@ -549,8 +625,9 @@ for epoch in range(resume_epoch, epochs):
 
             # 3. adversarial training
             with profiler.record_function("adverserial"):
-                # if encoder source was tgt, encoder should be trained to produce latent vector close to
-                # source and vice versa so pair enc_out_src with tgt_label and vice versa
+                # if encoder source was tgt, encoder should be trained to
+                # produce latent vector close to source and vice versa so pair
+                # enc_out_src with tgt_label and vice versa
 
                 if not skip_disc:
                     enc_out_src = enc_out_src.reshape(enc_out_src.size(0), -1)
@@ -575,11 +652,12 @@ for epoch in range(resume_epoch, epochs):
 
             with profiler.record_function("back & step"):
                 # scaler.scale(lossG).backward()
-                lossG.backward()  # delay 661.956924996 secs on CPU, 1.2 secs on GPU
+                lossG.backward()
 
                 # unscale optimizer before grad clipping
                 # scaler.unscale_(optimG)
-                torch.nn.utils.clip_grad_norm_(generator.parameters(), config_dict['gen_grad_clip'])
+                torch.nn.utils.clip_grad_norm_(generator.parameters(),
+                                               config_dict['gen_grad_clip'])
 
                 # scaler.step(optimG)
                 optimG.step()
@@ -588,15 +666,21 @@ for epoch in range(resume_epoch, epochs):
 
             epoch_loss_G.append(lossG.item())
             samples.append((row_apply(org_src[:5], tensor_to_sentence, False),
-                            row_apply(gen_out_src[:5], tensor_to_sentence, False),
-                            row_apply(gen_bt_src2tgt[:5], tensor_to_sentence, False),
+                            row_apply(gen_out_src[:5], tensor_to_sentence,
+                                      False),
+                            row_apply(gen_bt_src2tgt[:5], tensor_to_sentence,
+                                      False),
                             row_apply(org_tgt[:5], tensor_to_sentence, False),
-                            row_apply(gen_out_tgt[:5], tensor_to_sentence, False),
-                            row_apply(gen_bt_tgt2src[:5], tensor_to_sentence, False)))
+                            row_apply(gen_out_tgt[:5], tensor_to_sentence,
+                                      False),
+                            row_apply(gen_bt_tgt2src[:5], tensor_to_sentence,
+                                      False)))
 
-            # 4. train discriminator to identify encoder outputs belonging to input type src and tgt
+            # 4. train discriminator to identify encoder outputs belonging to
+            # input type src and tgt
             with profiler.record_function("disc-train"):
-                # using a combined and shuffled encoder outputs from src2tgt and tgt2src with targets as source_label
+                # using a combined and shuffled encoder outputs from src2tgt
+                # and tgt2src with targets as source_label
                 # & tgt_label resp.
 
                 if not skip_disc:
@@ -608,31 +692,28 @@ for epoch in range(resume_epoch, epochs):
                     generator.set_mode(tgt2src, word2idx)
                     _, _, enc_out_tgt1 = generator(in_tgt)
 
-                    # no mix train now.
-                    # enc_out_mix = torch.cat((enc_out_src1, enc_out_tgt1), dim=0)
-                    # disc_tgt = torch.cat((src_label_vec, tgt_label_vec))
-                    # shuffle_idx = torch.randperm(enc_out_mix.size(0))
-                    # enc_out_mix = enc_out_mix[shuffle_idx]
-                    # disc_tgt = disc_tgt[shuffle_idx]
-                    # clf_out = lat_clf(enc_out_mix.detach().reshape(enc_out_mix.size(0), -1))  # detach is not causing 0 grad
-                    # lossD = loss_bce(clf_out, disc_tgt.float())
-
-                    enc_out_src1 = enc_out_src1.detach().reshape(enc_out_src1.size(0), -1)
+                    enc_out_src1 = enc_out_src1.detach().reshape(
+                        enc_out_src1.size(0), -1)
                     enc_out_src1 = standard_scaler(enc_out_src1)
 
-                    enc_out_tgt1 = enc_out_tgt1.detach().reshape(enc_out_tgt1.size(0), -1)
-                    if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(enc_out_tgt1.max()).item():
+                    enc_out_tgt1 = enc_out_tgt1.detach().reshape(
+                        enc_out_tgt1.size(0), -1)
+                    if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(
+                            enc_out_tgt1.max()).item():
                         logger.append_log('check1', 'nan found')
                     enc_out_tgt1 = standard_scaler(enc_out_tgt1)  # has nan
-                    if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(enc_out_tgt1.max()).item():
+                    if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(
+                            enc_out_tgt1.max()).item():
                         logger.append_log('check2', 'nan found')
 
                     # for d_ in range(1):
                     optimD.zero_grad()
                     # with autocast():
                     if np.random.uniform(0, 1) < disc_noise_prob:
-                        enc_out_src1 += torch.randn(enc_out_src1.size(), device=device).uniform_(0, 1)
-                        enc_out_tgt1 += torch.randn(enc_out_tgt1.size(), device=device).uniform_(0, 1)
+                        enc_out_src1 += torch.randn(
+                            enc_out_src1.size(), device=device).uniform_(0, 1)
+                        enc_out_tgt1 += torch.randn(
+                            enc_out_tgt1.size(), device=device).uniform_(0, 1)
 
                         clf_out1 = lat_clf(enc_out_src1)
                         clf_out2 = lat_clf(enc_out_tgt1)
@@ -645,9 +726,11 @@ for epoch in range(resume_epoch, epochs):
                         noisy_src_labels = src_label_vec.clone()
                         noisy_tgt_labels = tgt_label_vec.clone()
                         noisy_src_labels[
-                            np.random.randint(0, src_label_vec.size(0), int(0.3 * src_label_vec.size(0)))] = tgt_label
+                            np.random.randint(0, src_label_vec.size(0), int(
+                                0.3 * src_label_vec.size(0)))] = tgt_label
                         noisy_tgt_labels[
-                            np.random.randint(0, tgt_label_vec.size(0), int(0.3 * tgt_label_vec.size(0)))] = src_label
+                            np.random.randint(0, tgt_label_vec.size(0), int(
+                                0.3 * tgt_label_vec.size(0)))] = src_label
 
                         lossD_src = loss_disc(clf_out1, noisy_src_labels)
                         lossD_tgt = loss_disc(clf_out2, noisy_tgt_labels)
@@ -659,7 +742,8 @@ for epoch in range(resume_epoch, epochs):
                     # scaler.scale(lossD).backward()
                     lossD.backward()
                     # scaler.unscale_(optimD)
-                    torch.nn.utils.clip_grad_norm_(lat_clf.parameters(), config_dict['disc_grad_clip'])
+                    torch.nn.utils.clip_grad_norm_(
+                        lat_clf.parameters(), config_dict['disc_grad_clip'])
                     # scaler.step(optimD)
                     optimD.step()
                     # weight_clip(lat_clf, 1)
@@ -689,9 +773,11 @@ for epoch in range(resume_epoch, epochs):
                 writer.add_scalar('grad/discrim', get_grad_norm(lat_clf), step)
 
             if iter_no % 50 == 0:
-                logger.append_log('epoch:{}/{} | iter:{}/{} | train_lossG={}, train_lossD={}, duration={} secs'.
-                      format(epoch, epochs, iter_no, len(dl_src_train), np.mean(epoch_loss_G),
-                             np.mean(epoch_loss_D), (time.time() - iter_start_time)))
+                logger.append_log('epoch:{}/{} | iter:{}/{} | train_lossG={}, '
+                                  'train_lossD={}, duration={} secs'.format(
+                    epoch, epochs, iter_no, len(dl_src_train),
+                    np.mean(epoch_loss_G), np.mean(epoch_loss_D),
+                    (time.time() - iter_start_time)))
                 if test_mode:
                     break
 
@@ -701,7 +787,8 @@ for epoch in range(resume_epoch, epochs):
     train_lossesD.append(np.mean(epoch_loss_D))
     train_lossesG.append(np.mean(epoch_loss_G))
 
-    val_loss = train_lossesG[-1]  # (train_lossesD[-1]+train_lossesG[-1])/2  # eval_model(clf_model, test_dl)[0]
+    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
+    # train_lossesG[-1]
 
     if config_dict['gen_lr_sched'] != 'cyclic':
         lr_sched_G.step(train_lossesG[-1])
@@ -729,24 +816,29 @@ for epoch in range(resume_epoch, epochs):
             # logger.append_log('lr and early_stop patience reverted', lr_reduce_patience, early_stop_patience)
             pass
 
-        logger.append_log('new best loss {}. State saved.'.format(val_loss))
+        logger.append_log('new best val loss {}. State saved.'.format(val_loss))
         early_stop_counter = 0
     else:
         early_stop_counter += 1
-        logger.append_log('early stop counter increament to', early_stop_counter, '/', early_stop_patience)
+        logger.append_log('early stop counter increament to',
+                          early_stop_counter, '/', early_stop_patience)
 
-    epoch_summary = 'epoch:{} | train_lossG={}, train_lossD={}, val_loss={}, duration={} secs'.\
-        format(epoch, train_lossesG[-1], train_lossesD[-1], val_loss, (time.time() - epoch_start_time))
+    epoch_summary = 'epoch:{} | train_lossG={}, train_lossD={}, val_loss={},' \
+                    ' duration={} secs'.format(epoch, train_lossesG[-1],
+                                               train_lossesD[-1], val_loss,
+                                               (time.time() - epoch_start_time))
     logger.append_log(epoch_summary)
     writer.add_text('epoch_summary', epoch_summary, global_step=epoch)
     if prof:
-        logger.append_log(prof.key_averages().table(sort_by="cpu_time_total", row_limit=15))
+        logger.append_log(
+            prof.key_averages().table(sort_by="cpu_time_total", row_limit=15))
         break
 
     # logger.append_log some samples
     if epoch % 2 == 0:
         try:
-            logger.append_log('samples:\n', log_samples_text(samples, epoch), '\n')
+            logger.append_log('samples:\n', log_samples_text(samples, epoch),
+                              '\n')
             with open(run_path / 'samples.txt', 'a') as file:
                 file.write(log_samples_text(samples, epoch))
         except Exception as e:
@@ -759,6 +851,7 @@ for epoch in range(resume_epoch, epochs):
 #         logger.append_log('stopping early at {} epoch and loss {}'.format(epoch, val_loss))
 #         break
 
-logger.append_log('training finished in {} mins'.format((time.time() - start_time) / 60))
+logger.append_log('training finished in {} mins'.
+                  format((time.time() - start_time) / 60))
 
 logger.flush()
