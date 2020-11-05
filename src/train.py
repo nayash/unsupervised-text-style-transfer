@@ -43,6 +43,8 @@ model config: -c or --config  -> path to a file with model configuration
 in JSON format (python dict like). Check out default config dic for
 all supported keys.
 
+command to run from colab:
+!python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
 '''
 
 seed = 999
@@ -61,10 +63,21 @@ arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('-s', '--insrc', default=YELP_PATH / src_sents,
                         help='path for source data file with each source \
                         sentence in a new line. Default is yelp negative')
-
 arg_parser.add_argument('-t', '--intgt', default=YELP_PATH / tgt_sents,
                         help='path for target data file with each target \
                         sentence in a new line. Default is yelp dataset')
+# different word embeddings would be required for language translation tasks,
+# but for that different script can be written. Moreover, it is quite likely
+# that for lesser known languages word embeddings won't even be available, so
+# rather add a flag to start with random word embeddings.
+# arg_parser.add_argument('--srcemb', default=GLOVE_PATH,
+#                         help='path to word embeddings for source language. File'
+#                              'should be in Glove format without the headers.'
+#                              'Default is '+GLOVE_PATH)
+# arg_parser.add_argument('--tgtemb', default=GLOVE_PATH,
+#                         help='path to word embeddings for target language.'
+#                              'should be in Glove format without the headers.'
+#                              'Default is '+GLOVE_PATH)
 arg_parser.add_argument('-c', '--config', default=INPUT_PATH / 'config.json',
                         help='configuration/hyperparameters in json format')
 arg_parser.add_argument('-e', '--expid', default='temp',
@@ -95,8 +108,10 @@ arg_parser.add_argument('--device', default='cuda',
                              ' supported values are "cuda" (default) or "cpu"')
 
 args = arg_parser.parse_args()
-source_file_path = os.path.abspath(args.insrc)
-target_file_path = os.path.abspath(args.intgt)
+src_file_path = os.path.abspath(args.insrc)
+tgt_file_path = os.path.abspath(args.intgt)
+# src_word_emb_path = os.path.abspath(args.srcemb)
+# tgt_word_emb_path = os.path.abspath(args.tgtemb)
 config_path = os.path.abspath(args.config)
 run_id = args.expid
 force_preproc = args.force
@@ -108,11 +123,11 @@ log_path = run_path / 'logs'
 data_cp_path = OUTPUT_PATH / 'data_cp.pk'
 tensors_path = OUTPUT_PATH / 'data_tensors_cp.pt'
 
-with open(source_file_path, encoding='utf-8',
+with open(src_file_path, encoding='utf-8',
           errors='ignore') as file:
     src_sents = file.readlines()
 
-with open(target_file_path, encoding='utf-8',
+with open(tgt_file_path, encoding='utf-8',
           errors='ignore') as file:
     tgt_sents = file.readlines()
 
@@ -123,6 +138,7 @@ else:
         raise Exception('expid already exists. '
                         'please pass unique expid or pass "-r" argument')
 
+nltk.download('punkt')
 logger = Logger(str(log_path), run_id, std_out=True)
 with open(config_path, 'r') as file:
     _ = file.read()
@@ -278,7 +294,8 @@ def standard_scaler(tensor):
     with torch.no_grad():
         means = tensor.mean(dim=0)
         stds = tensor.std(dim=0) + 1e-8
-        # logger.append_log('scaler',isNan(tensor),isNan(means),isNan(stds), isNan((tensor-means)/stds))
+        # logger.append_log('scaler',isNan(tensor),isNan(means),isNan(stds),
+        # isNan((tensor-means)/stds))
         return (tensor - means) / stds
 
 
@@ -316,7 +333,8 @@ if force_preproc or not tensors_path.exists():
     x_tgt = []
     y_tgt = []
 
-    # not used for now. need to figure out how to implement without breaking gradients graph
+    # not used for now. need to figure out how to implement without
+    # breaking gradients graph
     permute_prob = config_dict['permute_prob']
     drop_noise = config_dict['drop_noise']
     noisy_input = bool(config_dict['noisy_input'])
@@ -520,7 +538,7 @@ lambda_adv = config_dict['wgt_loss_adv'] if not skip_disc else 0
 test_mode = args.test
 resume_history = run_path / 'state.pt'
 resume_epoch = 0
-if is_resume:
+if is_resume and resume_history.exists():
     state = torch.load(resume_history, map_location='cpu')
 
     resume_epoch = state['epoch']
@@ -539,6 +557,11 @@ if is_resume:
     logger.append_log('lr_reduce_patience and early_stop_patience changed',
                       lr_reduce_patience, early_stop_patience)
     logger.append_log('loaded previous saved model')
+
+if is_resume and not resume_history.exists():
+    logger.append_log('Warning! resume flag (-r) passed to script but no '
+                      'previous model states were found! Was it expected?',
+                      level=Logger.LOGGING_LEVELS[2])
 
 writer = SummaryWriter(run_path, max_queue=1, flush_secs=1)
 # writer.add_text('run_changes', run_changes, lambda_adv)
@@ -789,6 +812,7 @@ for epoch in range(resume_epoch, epochs):
 
     val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
     # train_lossesG[-1]
+    writer.add_scalar('loss/val_loss', val_loss, epoch)
 
     if config_dict['gen_lr_sched'] != 'cyclic':
         lr_sched_G.step(train_lossesG[-1])
@@ -844,11 +868,12 @@ for epoch in range(resume_epoch, epochs):
         except Exception as e:
             logger.append_log('log failed', e)
 
-        if test_mode:
-            break
+        # if test_mode:
+        #     break
 
 #     if early_stop_counter > early_stop_patience:
-#         logger.append_log('stopping early at {} epoch and loss {}'.format(epoch, val_loss))
+#         logger.append_log('stopping early at {} epoch and loss {}'.
+#         format(epoch, val_loss))
 #         break
 
 logger.append_log('training finished in {} mins'.
