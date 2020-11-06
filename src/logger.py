@@ -24,6 +24,7 @@ class Logger:
                  log_queue_size=LOG_QUEUE_SIZE, std_out=False):
         if not os.path.exists(log_file_path):
             os.makedirs(log_file_path)
+
         LOG_QUEUE_SIZE = log_queue_size
         self.std_out = std_out
         self.init_file_writing(log_file_path, log_file_name_prefix)
@@ -38,7 +39,8 @@ class Logger:
             self.file_path), level=Logger.LOGGING_LEVELS[0])
 
     def cleanup_file_path(self, path):
-        return path.replace('\\', '/').replace(" ", "_").replace(':', '_')
+        # return path.replace('\\', '/').replace(" ", "_").replace(':', '_')
+        return path
 
     def get_log_prefix_format(self, level=None):
         level = Logger.LOGGING_LEVELS[1] if level is None else level

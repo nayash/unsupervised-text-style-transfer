@@ -1,9 +1,9 @@
 {
-  "batch_size": 256,
+  "batch_size": 150,
   "gen_lr": 0.0005,
   "hidden_dim": 200,
   "bidir": "True",
-  "layers": 3,
+  "layers": 1,
   "clf_lr": 0.000001,
   "epoch": 700,
   "permute_prob": 0.3,
@@ -22,5 +22,6 @@
   "wgt_loss_auto": 1,
   "wgt_loss_cd": 1,
   "wgt_loss_adv": 2,
-  "noisy_input": "True"
+  "noisy_input": "True",
+  "noisy_cd_input": "True"
 }

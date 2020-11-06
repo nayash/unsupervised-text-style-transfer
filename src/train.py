@@ -184,6 +184,13 @@ word2idx = data_cp['word2idx']
 idx2word = data_cp['idx2word']
 word_emb = data_cp['word_emb']
 
+# not used for now. need to figure out how to implement without
+# breaking gradients graph
+permute_prob = config_dict['permute_prob']
+drop_noise = config_dict['drop_noise']
+noisy_input = bool(config_dict['noisy_input'])
+noisy_cd_input = bool(config_dict['noisy_cd_input'])
+
 logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
@@ -246,6 +253,8 @@ def get_noisy_tensor(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
 
 
 def get_noisy_tensor_grad(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
+    # this is being called in each iteration and on each row of tensor.
+    # need to optimize. Need to vectorize this whole op.
     try:
         try:
             eos_index = (tensor == word2idx['EOS']).nonzero(
@@ -333,11 +342,6 @@ if force_preproc or not tensors_path.exists():
     x_tgt = []
     y_tgt = []
 
-    # not used for now. need to figure out how to implement without
-    # breaking gradients graph
-    permute_prob = config_dict['permute_prob']
-    drop_noise = config_dict['drop_noise']
-    noisy_input = bool(config_dict['noisy_input'])
 
     for i, src_sent in enumerate(src_sents):
         tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
@@ -625,8 +629,9 @@ for epoch in range(resume_epoch, epochs):
                 gen_out_src, _, enc_out_src = generator(org_src)
 
                 generator.set_mode(tgt2src, word2idx)
-                gen_bt_src2tgt, gen_out_bt_raw, _ = generator(
-                    row_apply(gen_out_src, get_noisy_tensor_grad))
+                gen_bt_src2tgt, gen_out_bt_raw, _ = \
+                    generator(row_apply(gen_out_src, get_noisy_tensor_grad)
+                              if noisy_cd_input else gen_out_src)
 
                 loss_cd_s2t = 0
                 for k in range(gen_out_bt_raw.size(0)):
@@ -637,8 +642,9 @@ for epoch in range(resume_epoch, epochs):
                 gen_out_tgt, _, enc_out_tgt = generator(org_tgt)
 
                 generator.set_mode(src2tgt, word2idx)
-                gen_bt_tgt2src, gen_out_bt_raw1, _ = generator(
-                    row_apply(gen_out_tgt, get_noisy_tensor_grad))
+                gen_bt_tgt2src, gen_out_bt_raw1, _ = \
+                    generator(row_apply(gen_out_tgt, get_noisy_tensor_grad)
+                              if noisy_cd_input else gen_out_tgt)
 
                 loss_cd_t2s = 0
                 for k in range(gen_out_bt_raw1.size(0)):
@@ -820,20 +826,19 @@ for epoch in range(resume_epoch, epochs):
     if config_dict['disc_lr_sched'] != 'cyclic' and not skip_disc:
         lr_sched_D.step(train_lossesD[-1])
 
+    state = {'epoch': epoch + 1,
+             'modelG': generator.state_dict(),
+             'modelD': lat_clf.state_dict(),
+             'optim_stateD': optimD.state_dict(),
+             'optim_stateG': optimG.state_dict(),
+             'lr_sched_g': lr_sched_G.state_dict(),
+             'lr_sched_d': lr_sched_D.state_dict(),
+             'last_train_loss': train_lossesG[-1],
+             'last_val_loss': val_loss
+             }
     if val_loss < prev_best_loss:
         prev_best_loss = val_loss
-        state = {'epoch': epoch + 1,
-                 'modelG': generator.state_dict(),
-                 'modelD': lat_clf.state_dict(),
-                 'optim_stateD': optimD.state_dict(),
-                 'optim_stateG': optimG.state_dict(),
-                 'lr_sched_g': lr_sched_G.state_dict(),
-                 'lr_sched_d': lr_sched_D.state_dict(),
-                 'last_train_loss': train_lossesG[-1],
-                 'last_val_loss': val_loss
-                 }
-
-        torch.save(state, run_path / 'state.pt')
+        torch.save(generator.state_dict(), run_id / 'best_modelG.pt')
         if is_resume:
             # lr_reduce_patience = 2
             # early_stop_patience = lr_reduce_patience * 3
@@ -847,6 +852,7 @@ for epoch in range(resume_epoch, epochs):
         logger.append_log('early stop counter increament to',
                           early_stop_counter, '/', early_stop_patience)
 
+    torch.save(state, run_path / 'state.pt')
     epoch_summary = 'epoch:{} | train_lossG={}, train_lossD={}, val_loss={},' \
                     ' duration={} secs'.format(epoch, train_lossesG[-1],
                                                train_lossesD[-1], val_loss,
