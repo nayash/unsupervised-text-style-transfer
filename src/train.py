@@ -425,7 +425,8 @@ generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
                            config_dict['batch_size'], word_emb_tensor, device,
                            layers=config_dict['layers'],
                            bidirectional=bool(config_dict['bidir']),
-                           lstm_do=config_dict['lstm_do'])
+                           lstm_do=config_dict['lstm_do'],
+                           use_attn=config_dict["use_attention"])
 clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
     'hidden_dim']
 lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))

@@ -23,5 +23,6 @@
   "wgt_loss_cd": 1,
   "wgt_loss_adv": 2,
   "noisy_input": "True",
-  "noisy_cd_input": "True"
+  "noisy_cd_input": "True",
+  "use_attention": "True"
 }
