@@ -394,7 +394,7 @@ logger.append_log('loaded tensors...', x_src.shape, y_src.shape,
 
 # create data loaders
 total_samples = len(x_src)
-train_size = int(0.95 * total_samples)
+train_size = int(0.9 * total_samples)
 test_size = total_samples - train_size
 ds_src = TensorDataset(x_src, y_src)
 ds_tgt = TensorDataset(x_tgt, y_tgt)
@@ -417,7 +417,8 @@ dl_src_test = DataLoader(ds_src_test, batch_size=config_dict['batch_size'],
 dl_tgt_test = DataLoader(ds_tgt_test, batch_size=config_dict['batch_size'],
                          drop_last=True)
 
-logger.append_log('train/test size', len(dl_src_train), len(dl_src_test))
+logger.append_log('train/test size', len(dl_src_train)*config_dict['batch_size']
+                  , len(dl_src_test)*config_dict['batch_size'])
 
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
@@ -427,8 +428,7 @@ generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
                            bidirectional=bool(config_dict['bidir']),
                            lstm_do=config_dict['lstm_do'],
                            use_attn=config_dict["use_attention"])
-clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
-    'hidden_dim']
+clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict['hidden_dim']
 lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
 assert not isNan(generator.encoder.emb.weight)
 # generator.half(), lat_clf.half()
@@ -839,7 +839,7 @@ for epoch in range(resume_epoch, epochs):
              }
     if val_loss < prev_best_loss:
         prev_best_loss = val_loss
-        torch.save(generator.state_dict(), run_id / 'best_modelG.pt')
+        torch.save(generator.state_dict(), run_path / 'best_modelG.pt')
         if is_resume:
             # lr_reduce_patience = 2
             # early_stop_patience = lr_reduce_patience * 3
