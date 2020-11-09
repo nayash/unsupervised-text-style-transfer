@@ -16,7 +16,7 @@ import time
 
 
 class Logger:
-    LOG_QUEUE_SIZE = 50
+    LOG_QUEUE_SIZE = 10
     LOGGING_LEVELS = {0: "INFO", 1: "DEBUG",
                       2: "WARN", 3: "ERROR", 4: "CRITICAL"}
 
@@ -74,3 +74,6 @@ class Logger:
 
     def get_readable_ctime(self):
         return time.strftime("%d-%m-%Y %H_%M_%S")
+
+
+

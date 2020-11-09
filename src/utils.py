@@ -43,7 +43,7 @@ def clean_text_yelp(text):
     text = text.replace(" 'd", ' would')
     text = text.replace(" 'm", ' am')
     text = text.replace("&", 'and')
-    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘]', '', text)
+    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:]', ' ', text)
     text = re.sub(r'[-—_,]', ' ', text)
     text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
     text = re.sub(r'[()]', '', text)

@@ -55,8 +55,8 @@ INPUT_PATH = ROOT_PATH / 'inputs'
 OUTPUT_PATH = ROOT_PATH / 'outputs'
 GLOVE_PATH = INPUT_PATH / 'glove.6B.200d.txt'
 YELP_PATH = INPUT_PATH / 'yelp-reviews-preprocessed'
-src_sents = 'sentiment.0.train.txt'
-tgt_sents = 'sentiment.1.train.txt'
+src_sents = 'sentiment.0.train_dev.txt'
+tgt_sents = 'sentiment.1.train_dev.txt'
 
 arg_parser = argparse.ArgumentParser()
 
@@ -147,8 +147,16 @@ logger.append_log('config: ', config_dict)
 
 if force_preproc or not data_cp_path.exists():
     logger.append_log('cleaning up sentences...')
-    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)]
-    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)]
+    max_len = config_dict["max_sentence_len"]
+    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)
+                 if max_len == -1 or len(word_tokenize(sent)) <= max_len]
+    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)
+                 if max_len == -1 or len(word_tokenize(sent)) <= max_len]
+
+    if len(src_sents) < len(tgt_sents):
+        tgt_sents = tgt_sents[:len(src_sents)]
+    else:
+        src_sents = src_sents[:len(tgt_sents)]
 
     logger.append_log('building vocabulary...')
     words = word_tokenize(' '.join(src_sents))
@@ -165,7 +173,8 @@ if force_preproc or not data_cp_path.exists():
         GLOVE_PATH, words)
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents, 'words': words}
-    max_len = max([len(word_tokenize(sent)) for sent in src_sents + tgt_sents])
+    max_len = max([len(word_tokenize(sent)) for sent in src_sents + tgt_sents]) \
+        if max_len == -1 else max_len
     data_cp['max_sent_len'] = max_len
     data_cp['word2idx'] = word2idx
     data_cp['idx2word'] = idx2word
@@ -180,6 +189,7 @@ src_sents = data_cp['src']
 words = data_cp['words']
 max_len = data_cp['max_sent_len']
 max_len += 3  # extra tokens for SOS, EOS, OpType
+print('max_len', max_len)
 word2idx = data_cp['word2idx']
 idx2word = data_cp['idx2word']
 word_emb = data_cp['word_emb']
@@ -342,14 +352,17 @@ if force_preproc or not tensors_path.exists():
     x_tgt = []
     y_tgt = []
 
-
     for i, src_sent in enumerate(src_sents):
         tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
+        assert tensor.size(0) == max_len, ''+str(tensor.size(0))+','+\
+                                          str(max_len)+','+src_sent
         x_src.append(get_noisy_tensor(tensor) if noisy_input else tensor)
         y_src.append(tensor.clone())
 
     for i, q in enumerate(tgt_sents):
         tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='pos')
+        assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
+            max_len) + ',' + q
         x_tgt.append(get_noisy_tensor(tensor) if noisy_input else tensor)
         y_tgt.append(tensor.clone())
 
@@ -422,18 +435,27 @@ logger.append_log('train/test size', len(dl_src_train)*config_dict['batch_size']
 
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
+skip_disc = bool(config_dict['adv_training'])
+
 generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
                            config_dict['batch_size'], word_emb_tensor, device,
                            layers=config_dict['layers'],
                            bidirectional=bool(config_dict['bidir']),
                            lstm_do=config_dict['lstm_do'],
-                           use_attn=config_dict["use_attention"])
-clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict['hidden_dim']
-lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
+                           use_attn=config_dict['use_attention'],
+                           emb_do=config_dict['emb_do'])
+
+if not skip_disc:
+    clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
+        'hidden_dim']
+    lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
+    lat_clf.to(device)
+    lat_clf.apply(weights_init)
+
 assert not isNan(generator.encoder.emb.weight)
 # generator.half(), lat_clf.half()
-generator.to(device), lat_clf.to(device)
-generator.apply(weights_init), lat_clf.apply(weights_init)
+generator.to(device)
+generator.apply(weights_init)
 
 lr_reduce_factor = 0.1
 lr_reduce_patience = 2
@@ -455,9 +477,10 @@ optimG = torch.optim.RMSprop(generator.parameters(), lr=config_dict['gen_lr'],
                              weight_decay=0, momentum=0.9, centered=False)
 # optimD = torch.optim.Adam(lat_clf.parameters(), lr=config_dict['clf_lr'],
 #                           betas=(0.5, 0.999))
-optimD = torch.optim.RMSprop(lat_clf.parameters(), lr=config_dict['clf_lr'],
-                             alpha=0.99, eps=1e-08,
-                             weight_decay=0, momentum=0.9, centered=False)
+if not skip_disc:
+    optimD = torch.optim.RMSprop(lat_clf.parameters(), lr=config_dict['clf_lr'],
+                                 alpha=0.99, eps=1e-08,
+                                 weight_decay=0, momentum=0.9, centered=False)
 
 if config_dict['gen_lr_sched'] == 'cyclic':
     lr_sched_G = torch.optim.lr_scheduler.CyclicLR(optimG, base_lr, max_lr,
@@ -476,26 +499,25 @@ else:
                                                             cooldown=0,
                                                             min_lr=1e-8,
                                                             eps=1e-08)
-
-if config_dict['disc_lr_sched'] == 'cyclic':
-    lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,
-                                                   config_dict['disc_base_lr'],
-                                                   config_dict['disc_max_lr'],
-                                                   step_size_up=2000,
-                                                   step_size_down=None,
-                                                   mode='triangular', gamma=1.0,
-                                                   scale_mode='cycle',
-                                                   last_epoch=-1)
-else:
-    lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD, mode='min',
-                                                            factor=lr_reduce_factorD,
-                                                            patience=lr_reduce_patienceD,
-                                                            verbose=True,
-                                                            threshold=0.00001,
-                                                            threshold_mode='rel',
-                                                            cooldown=0,
-                                                            min_lr=1e-8,
-                                                            eps=1e-08)
+if not skip_disc:
+    if config_dict['disc_lr_sched'] == 'cyclic':
+        lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,config_dict['disc_base_lr'],
+                                                       config_dict['disc_max_lr'],
+                                                       step_size_up=2000,
+                                                       step_size_down=None,
+                                                       mode='triangular', gamma=1.0,
+                                                       scale_mode='cycle',
+                                                       last_epoch=-1)
+    else:
+        lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD, mode='min',
+                                                                factor=lr_reduce_factorD,
+                                                                patience=lr_reduce_patienceD,
+                                                                verbose=True,
+                                                                threshold=0.00001,
+                                                                threshold_mode='rel',
+                                                                cooldown=0,
+                                                                min_lr=1e-8,
+                                                                eps=1e-08)
 
 # training code
 
@@ -533,7 +555,6 @@ prev_best_loss = np.inf
 early_stop_patience = 30  # lr_reduce_patience * 3
 early_stop_counter = 0
 scaler = StandardScaler()
-skip_disc = False
 disc_noise_prob = 0.2
 
 lambda_auto = config_dict['wgt_loss_auto']
@@ -578,7 +599,8 @@ tgt_label_vec = torch.tensor([tgt_label] * config_dict['batch_size'],
                              requires_grad=False).float().to(device)
 
 generator.train()
-lat_clf.train()
+if not skip_disc:
+    lat_clf.train()
 
 # scaler = GradScaler()
 
@@ -600,7 +622,8 @@ for epoch in range(resume_epoch, epochs):
             org_src, org_tgt = data_src[1], data_tgt[
                 1]  # non-noisy original sentence tensors
 
-            optimD.zero_grad()
+            if not skip_disc:
+                optimD.zero_grad()
             optimG.zero_grad()
 
             # with autocast():
@@ -829,11 +852,11 @@ for epoch in range(resume_epoch, epochs):
 
     state = {'epoch': epoch + 1,
              'modelG': generator.state_dict(),
-             'modelD': lat_clf.state_dict(),
-             'optim_stateD': optimD.state_dict(),
+             'modelD': lat_clf.state_dict() if not skip_disc else {},
+             'optim_stateD': optimD.state_dict() if not skip_disc else {},
              'optim_stateG': optimG.state_dict(),
              'lr_sched_g': lr_sched_G.state_dict(),
-             'lr_sched_d': lr_sched_D.state_dict(),
+             'lr_sched_d': lr_sched_D.state_dict() if not skip_disc else {},
              'last_train_loss': train_lossesG[-1],
              'last_val_loss': val_loss
              }
@@ -875,8 +898,8 @@ for epoch in range(resume_epoch, epochs):
         except Exception as e:
             logger.append_log('log failed', e)
 
-        # if test_mode:
-        #     break
+        if test_mode and epoch > 5:
+            break
 
 #     if early_stop_counter > early_stop_patience:
 #         logger.append_log('stopping early at {} epoch and loss {}'.
