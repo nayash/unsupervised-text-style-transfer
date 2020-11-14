@@ -36,6 +36,7 @@ def clean_text(text):
 
 
 def clean_text_yelp(text):
+    text = text.lower()
     text = text.replace('_num_', 'NUMBER')
     text = text.replace("n't", 'not')
     # text = text.replace(" 's", 's')

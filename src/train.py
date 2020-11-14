@@ -148,10 +148,13 @@ logger.append_log('config: ', config_dict)
 if force_preproc or not data_cp_path.exists():
     logger.append_log('cleaning up sentences...')
     max_len = config_dict["max_sentence_len"]
-    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)
-                 if max_len == -1 or len(word_tokenize(sent)) <= max_len]
-    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)
-                 if max_len == -1 or len(word_tokenize(sent)) <= max_len]
+    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)]
+    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)]
+
+    if max_len != -1:
+        print('filtering out sentences with more than', max_len, 'words')
+        src_sents = [sent for sent in tqdm(src_sents) if len(word_tokenize(sent)) <= max_len]
+        tgt_sents = [sent for sent in tqdm(tgt_sents) if len(word_tokenize(sent)) <= max_len]
 
     if len(src_sents) < len(tgt_sents):
         tgt_sents = tgt_sents[:len(src_sents)]
@@ -205,6 +208,8 @@ logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
 word_emb_tensor = torch.tensor(word_emb)
+word_emb_tensor = word_emb_tensor/torch.norm(word_emb_tensor, dim=1).unsqueeze(-1)
+
 for k, v in word2idx.items():
     assert k == idx2word[v]
 
@@ -435,7 +440,7 @@ logger.append_log('train/test size', len(dl_src_train)*config_dict['batch_size']
 
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
-skip_disc = bool(config_dict['adv_training'])
+skip_disc = not bool(config_dict['adv_training'])
 
 generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
                            config_dict['batch_size'], word_emb_tensor, device,
@@ -457,11 +462,11 @@ assert not isNan(generator.encoder.emb.weight)
 generator.to(device)
 generator.apply(weights_init)
 
-lr_reduce_factor = 0.1
-lr_reduce_patience = 2
+lr_reduce_factor = config_dict['gen_lr_reduce_factor']
+lr_reduce_patience = config_dict['gen_lr_reduce_patience']
 
-lr_reduce_factorD = 0.1
-lr_reduce_patienceD = 2
+lr_reduce_factorD = config_dict['disc_lr_reduce_factor']
+lr_reduce_patienceD = config_dict['disc_lr_reduce_patience']
 
 base_lr = config_dict['base_lr']
 max_lr = config_dict['max_lr']
@@ -470,19 +475,13 @@ mode = config_dict['mode']
 
 loss_disc = nn.BCEWithLogitsLoss()  # BCE doesn't use sigmoid internally
 loss_ce = nn.NLLLoss()  # nn.CrossEntropyLoss()
-# optimG = torch.optim.Adam(generator.parameters(), lr=config_dict['gen_lr'],
-#                           betas=(0.5, 0.999))
-optimG = torch.optim.RMSprop(generator.parameters(), lr=config_dict['gen_lr'],
-                             alpha=0.99, eps=1e-08,
-                             weight_decay=0, momentum=0.9, centered=False)
-# optimD = torch.optim.Adam(lat_clf.parameters(), lr=config_dict['clf_lr'],
-#                           betas=(0.5, 0.999))
-if not skip_disc:
-    optimD = torch.optim.RMSprop(lat_clf.parameters(), lr=config_dict['clf_lr'],
+
+if config_dict['gen_lr_sched'] == 'cyclic':
+    optimG = torch.optim.RMSprop(generator.parameters(),
+                                 lr=config_dict['gen_lr'],
                                  alpha=0.99, eps=1e-08,
                                  weight_decay=0, momentum=0.9, centered=False)
 
-if config_dict['gen_lr_sched'] == 'cyclic':
     lr_sched_G = torch.optim.lr_scheduler.CyclicLR(optimG, base_lr, max_lr,
                                                    step_size_up=step_size,
                                                    step_size_down=None,
@@ -490,6 +489,10 @@ if config_dict['gen_lr_sched'] == 'cyclic':
                                                    scale_mode='cycle',
                                                    last_epoch=-1)
 else:
+    optimG = torch.optim.Adam(generator.parameters(), lr=config_dict['gen_lr'],
+                              betas=(0.5, 0.999),
+                              weight_decay=config_dict['gen_weight_decay'])
+
     lr_sched_G = torch.optim.lr_scheduler.ReduceLROnPlateau(optimG, mode='min',
                                                             factor=lr_reduce_factor,
                                                             patience=lr_reduce_patience,
@@ -501,6 +504,11 @@ else:
                                                             eps=1e-08)
 if not skip_disc:
     if config_dict['disc_lr_sched'] == 'cyclic':
+        optimD = torch.optim.RMSprop(lat_clf.parameters(),
+                                     lr=config_dict['clf_lr'],
+                                     alpha=0.99, eps=1e-08,
+                                     weight_decay=0, momentum=0.9,
+                                     centered=False)
         lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,config_dict['disc_base_lr'],
                                                        config_dict['disc_max_lr'],
                                                        step_size_up=2000,
@@ -509,6 +517,11 @@ if not skip_disc:
                                                        scale_mode='cycle',
                                                        last_epoch=-1)
     else:
+        optimD = torch.optim.Adam(lat_clf.parameters(),
+                                  lr=config_dict['clf_lr'],
+                                  betas=(0.5, 0.999),
+                                  weight_decay=config_dict['disc_weight_decay'])
+
         lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD, mode='min',
                                                                 factor=lr_reduce_factorD,
                                                                 patience=lr_reduce_patienceD,
