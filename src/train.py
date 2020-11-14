@@ -55,8 +55,8 @@ INPUT_PATH = ROOT_PATH / 'inputs'
 OUTPUT_PATH = ROOT_PATH / 'outputs'
 GLOVE_PATH = INPUT_PATH / 'glove.6B.200d.txt'
 YELP_PATH = INPUT_PATH / 'yelp-reviews-preprocessed'
-src_sents = 'sentiment.0.train_dev.txt'
-tgt_sents = 'sentiment.1.train_dev.txt'
+src_sents = 'sentiment.0.all.txt'
+tgt_sents = 'sentiment.1.all.txt'
 
 arg_parser = argparse.ArgumentParser()
 
@@ -210,6 +210,11 @@ logger.append_log('number of samples in source and target are\
 word_emb_tensor = torch.tensor(word_emb)
 word_emb_tensor = word_emb_tensor/torch.norm(word_emb_tensor, dim=1).unsqueeze(-1)
 
+assert word_emb_tensor.size(-1) == config_dict['hidden_dim'], \
+    'dimension of word embedding and hidden size passed in configuration ' \
+    'json are different. word embedding dim='+str(word_emb_tensor.size(-1))+\
+    ', hidden dim in config='+str(config_dict['hidden_dim'])
+
 for k, v in word2idx.items():
     assert k == idx2word[v]
 
@@ -280,7 +285,7 @@ def get_noisy_tensor_grad(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
         tensor[1:eos_index] = tensor[1:eos_index][torch.randperm(eos_index - 1)]
         # drop_mask = torch.FloatTensor(tensor[1:eos_index].size(0)).uniform_(0, 1)
     except Exception as e:
-        logger.append_log('Exception', e, word2idx['EOS'], eos_index)
+        logger.append_log('Exception', e, word2idx['EOS'], eos_index,'>>', tensor)
     return tensor
 
 
@@ -480,7 +485,8 @@ if config_dict['gen_lr_sched'] == 'cyclic':
     optimG = torch.optim.RMSprop(generator.parameters(),
                                  lr=config_dict['gen_lr'],
                                  alpha=0.99, eps=1e-08,
-                                 weight_decay=0, momentum=0.9, centered=False)
+                                 weight_decay=config_dict['gen_weight_decay'],
+                                 momentum=0.9, centered=False)
 
     lr_sched_G = torch.optim.lr_scheduler.CyclicLR(optimG, base_lr, max_lr,
                                                    step_size_up=step_size,
@@ -507,8 +513,8 @@ if not skip_disc:
         optimD = torch.optim.RMSprop(lat_clf.parameters(),
                                      lr=config_dict['clf_lr'],
                                      alpha=0.99, eps=1e-08,
-                                     weight_decay=0, momentum=0.9,
-                                     centered=False)
+                                     weight_decay=config_dict['disc_weight_decay']
+                                     , momentum=0.9, centered=False)
         lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,config_dict['disc_base_lr'],
                                                        config_dict['disc_max_lr'],
                                                        step_size_up=2000,
@@ -821,7 +827,7 @@ for epoch in range(resume_epoch, epochs):
             if config_dict['gen_lr_sched'] == 'cyclic':
                 lr_sched_G.step()
 
-            if config_dict['disc_lr_sched'] == 'cyclic' and not skip_disc:
+            if not skip_disc and config_dict['disc_lr_sched'] == 'cyclic':
                 lr_sched_D.step()
 
             # scaler.update()
@@ -858,9 +864,9 @@ for epoch in range(resume_epoch, epochs):
     writer.add_scalar('loss/val_loss', val_loss, epoch)
 
     if config_dict['gen_lr_sched'] != 'cyclic':
-        lr_sched_G.step(train_lossesG[-1])
+        lr_sched_G.step(val_loss)
 
-    if config_dict['disc_lr_sched'] != 'cyclic' and not skip_disc:
+    if not skip_disc and config_dict['disc_lr_sched'] != 'cyclic':
         lr_sched_D.step(train_lossesD[-1])
 
     state = {'epoch': epoch + 1,
