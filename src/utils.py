@@ -4,6 +4,7 @@ import unicodedata
 import numpy as np
 import torch
 import time
+from nltk.tokenize import sent_tokenize, word_tokenize
 
 
 def unicodeToAscii(s):
@@ -36,14 +37,16 @@ def clean_text(text):
 
 
 def clean_text_yelp(text):
+    # text = ''.join(text)
     text = text.lower()
     text = text.replace('_num_', 'NUMBER')
-    text = text.replace("n't", 'not')
+    text = text.replace("n't", ' not')
     # text = text.replace(" 's", 's')
     text = text.replace(" 've", ' have')
     text = text.replace(" 'd", ' would')
     text = text.replace(" 'm", ' am')
     text = text.replace("&", 'and')
+    text = text.replace('\\n','').replace("\\","")
     text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:]', ' ', text)
     text = re.sub(r'[-—_,]', ' ', text)
     text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
@@ -134,3 +137,12 @@ def permute_tensor(tensor, k=3):
 
 def get_readable_ctime():
     return time.strftime("%d-%m-%Y %H_%M_%S")
+
+
+# small functions to enable parallelization
+def is_sent_shorter(sent, max_len):
+    return len(word_tokenize(sent)) <= max_len
+
+
+def len_word_tokenize(sent):
+    return len(word_tokenize(sent))

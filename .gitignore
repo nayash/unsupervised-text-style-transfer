@@ -2,6 +2,9 @@
 /outputs/*
 /inputs/pre-trained/*
 /inputs/glove.6B.200d.txt
+/inputs/yelp_academic_dataset_review.json
+/inputs/yelp-reviews-preprocessed/sentiment.0.all.txt
+/inputs/yelp-reviews-preprocessed/sentiment.1.all.txt
 /.idea
 src/__pycache__/
 src/secrets.py

@@ -26,6 +26,7 @@ from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 import torch.autograd.profiler as profiler
 from constants import *
+import multiprocessing as mp
 
 '''
 supported arguments
@@ -120,8 +121,6 @@ clean_text_func = locals()[args.cleanfunc]
 
 run_path = OUTPUT_PATH / 'runs' / run_id
 log_path = run_path / 'logs'
-data_cp_path = OUTPUT_PATH / 'data_cp.pk'
-tensors_path = OUTPUT_PATH / 'data_tensors_cp.pt'
 
 with open(src_file_path, encoding='utf-8',
           errors='ignore') as file:
@@ -140,21 +139,32 @@ else:
 
 nltk.download('punkt')
 logger = Logger(str(log_path), run_id, std_out=True)
+pool = mp.Pool(mp.cpu_count())
+
 with open(config_path, 'r') as file:
     _ = file.read()
     config_dict = json.loads(_)
 logger.append_log('config: ', config_dict)
 
+max_len = config_dict["max_sentence_len"]
+data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pt')
+tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
+
 if force_preproc or not data_cp_path.exists():
     logger.append_log('cleaning up sentences...')
-    max_len = config_dict["max_sentence_len"]
-    src_sents = [clean_text_func(sent) for sent in tqdm(src_sents)]
-    tgt_sents = [clean_text_func(sent) for sent in tqdm(tgt_sents)]
-
+    src_sents = [pool.apply_async(clean_text_func, args=str(sent)) for sent in tqdm(src_sents)]
+    tgt_sents = [pool.apply_async(clean_text_func, args=str(sent)) for sent in tqdm(tgt_sents)]
+    pool.join()
+    print(src_sents[:10])
+    print(tgt_sents[:10])
+    sys.exit()
     if max_len != -1:
-        print('filtering out sentences with more than', max_len, 'words')
-        src_sents = [sent for sent in tqdm(src_sents) if len(word_tokenize(sent)) <= max_len]
-        tgt_sents = [sent for sent in tqdm(tgt_sents) if len(word_tokenize(sent)) <= max_len]
+        print('discarding sentences with more than', max_len, 'words')
+        src_sents = [sent for sent in tqdm(src_sents) if pool.apply(is_sent_shorter, args=(sent, max_len))]
+        tgt_sents = [sent for sent in tqdm(tgt_sents) if pool.apply(is_sent_shorter, args=(sent, max_len))]
+
+    print('size after filtering longer sentences', len(src_sents),
+          len(tgt_sents))
 
     if len(src_sents) < len(tgt_sents):
         tgt_sents = tgt_sents[:len(src_sents)]
@@ -176,7 +186,7 @@ if force_preproc or not data_cp_path.exists():
         GLOVE_PATH, words)
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents, 'words': words}
-    max_len = max([len(word_tokenize(sent)) for sent in src_sents + tgt_sents]) \
+    max_len = max([pool.apply(len_word_tokenize, args=(sent)) for sent in src_sents + tgt_sents]) \
         if max_len == -1 else max_len
     data_cp['max_sent_len'] = max_len
     data_cp['word2idx'] = word2idx
@@ -245,7 +255,7 @@ def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len,
     return torch.tensor(temp)  # , device=device
 
 
-def tensor_to_sentence(sent_tensor):
+def tensor_to_sentence(sent_tensor, idx2word=idx2word):
     sent_tensor = sent_tensor.squeeze().cpu().numpy()
     sent = []
     for idx in sent_tensor:
@@ -415,6 +425,8 @@ y_tgt = y_tgt.to(device)
 logger.append_log('loaded tensors...', x_src.shape, y_src.shape,
                   x_tgt.shape, y_tgt.shape, x_src.is_cuda)
 
+
+pool.close()
 # create data loaders
 total_samples = len(x_src)
 train_size = int(0.9 * total_samples)
