@@ -221,6 +221,7 @@ if force_preproc or not data_cp_path.exists():
     data_cp['word2idx'] = word2idx
     data_cp['idx2word'] = idx2word
     data_cp['word_emb'] = word_emb
+    data_cp['config_dict'] = config_dict
     pickle.dump(data_cp, open(str(data_cp_path), 'wb'))
     logger.append_log('saved cleaned up sentences at {}, file size {}\
             KB'.format(str(data_cp_path), data_cp_path.stat().st_size // 1024))
