@@ -108,6 +108,7 @@ def tensor_to_sentence(sent_tensor, idx2word=idx2word):
 
 
 def eval_model_tensor(generator, x, mode, word2idx):
+    x = x.to(device)
     generator.set_mode(mode, word2idx)
     input = x if len(x.size()) > 1 \
         else x.view(1, -1)

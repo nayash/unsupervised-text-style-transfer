@@ -607,13 +607,17 @@ def eval_model_tensor(generator, x, y, mode, word2idx):
     return loss.item()
 
 
-def eval_model_dl(generator, dl_src, dl_tgt, word2idx):
+def eval_model_dl(generator, dl_src, dl_tgt, word2idx, device=device):
     generator.eval()
     loss = 0
     for x, y in dl_src:
+        x = x.to(device)
+        y = y.to(device)
         loss += eval_model_tensor(generator, x, y, src2tgt, word2idx)
 
     for x, y in dl_tgt:
+        x = x.to(device)
+        y = y.to(device)
         loss += eval_model_tensor(generator, x, y, tgt2src, word2idx)
 
     generator.train()
@@ -904,7 +908,7 @@ for epoch in range(resume_epoch, epochs):
                     epoch, epochs, iter_no, len(dl_src_train),
                     np.mean(epoch_loss_G), np.mean(epoch_loss_D),
                     (time.time() - iter_start_time)))
-                if test_mode:
+                if test_mode and iter_no > 2:
                     break
 
             if iter_no % config_dict['sample_generation_interval_iters'] == 0:
@@ -914,6 +918,8 @@ for epoch in range(resume_epoch, epochs):
                                       '\n')
                     with open(run_path / 'samples.txt', 'a') as file:
                         file.write(log_samples_text(samples, epoch))
+                    val_loss_temp = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
+                    logger.append_log('intermediate val loss', val_loss_temp)
                 except Exception as e:
                     logger.append_log('log failed', e)
 
@@ -981,7 +987,7 @@ for epoch in range(resume_epoch, epochs):
         except Exception as e:
             logger.append_log('log failed', e)
 
-        if test_mode and epoch > 5:
+        if test_mode and epoch > 1:
             break
 
 #     if early_stop_counter > early_stop_patience:
