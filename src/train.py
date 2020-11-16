@@ -122,14 +122,6 @@ clean_text_func = locals()[args.cleanfunc]
 run_path = OUTPUT_PATH / 'runs' / run_id
 log_path = run_path / 'logs'
 
-with open(src_file_path, encoding='utf-8',
-          errors='ignore') as file:
-    src_sents = file.readlines()
-
-with open(tgt_file_path, encoding='utf-8',
-          errors='ignore') as file:
-    tgt_sents = file.readlines()
-
 if not run_path.exists():
     os.makedirs(run_path)
 else:
@@ -137,7 +129,7 @@ else:
         raise Exception('expid already exists. '
                         'please pass unique expid or pass "-r" argument')
 
-nltk.download('punkt')
+# nltk.download('punkt')
 logger = Logger(str(log_path), run_id, std_out=True)
 pool = mp.Pool(mp.cpu_count())
 
@@ -149,23 +141,60 @@ logger.append_log('config: ', config_dict)
 max_len = config_dict["max_sentence_len"]
 data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pt')
 tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
+src_sents = []
+tgt_sents = []
+
 
 if force_preproc or not data_cp_path.exists():
-    logger.append_log('cleaning up sentences...')
-    src_sents = [pool.apply_async(clean_text_func, args=str(sent)) for sent in tqdm(src_sents)]
-    tgt_sents = [pool.apply_async(clean_text_func, args=str(sent)) for sent in tqdm(tgt_sents)]
-    pool.join()
-    print(src_sents[:10])
-    print(tgt_sents[:10])
-    sys.exit()
-    if max_len != -1:
-        print('discarding sentences with more than', max_len, 'words')
-        src_sents = [sent for sent in tqdm(src_sents) if pool.apply(is_sent_shorter, args=(sent, max_len))]
-        tgt_sents = [sent for sent in tqdm(tgt_sents) if pool.apply(is_sent_shorter, args=(sent, max_len))]
+    buffer = int(config_dict['batch_preproc_buffer'])
+    logger.append_log(
+        'processing source sentences from {}, with batch size {}'.
+            format(src_file_path, buffer))
+    with open(src_file_path, encoding='utf-8', errors='ignore') as file:
+        temp = file.readlines(buffer)
+        batch_num = 0
+        while temp:
+            stime = time.time()
+            results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
+                         sent in temp]
+            src_sents.extend([res.get() for res in results if res.get()])
+            del results
+            del temp
+            temp = file.readlines(buffer)
+            print('processed batch {} in {} secs. current src list size: {}'.
+                  format(batch_num, (time.time()-stime), len(src_sents)))
+            batch_num += 1
+            if len(src_sents) >= config_dict['max_samples']:
+                logger.append_log('reached ', len(src_sents),
+                                  ' src samples. skipping rest')
+                break
 
-    print('size after filtering longer sentences', len(src_sents),
+    logger.append_log(
+        'processing target sentences from {}, with batch size {}'.
+            format(tgt_file_path, buffer))
+    with open(tgt_file_path, encoding='utf-8', errors='ignore') as file:
+        temp = file.readlines(buffer)
+        batch_num = 0
+        while temp:
+            stime = time.time()
+            results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
+                         sent in temp]
+            tgt_sents.extend([res.get() for res in results if res.get()])
+            del results
+            del temp
+            temp = file.readlines(buffer)
+            print('processed batch {} in {} secs. current tgt list size: {}'.
+                  format(batch_num, (time.time() - stime), len(tgt_sents)))
+            batch_num += 1
+            if len(tgt_sents) >= config_dict['max_samples']:
+                logger.append_log('reached ', len(tgt_sents),
+                                  ' tgt samples. skipping rest')
+                break
+
+    print('size after discarding longer sentences', len(src_sents),
           len(tgt_sents))
-
+    logger.append_log(src_sents[:5], tgt_sents[-5:])
+    # sys.exit()
     if len(src_sents) < len(tgt_sents):
         tgt_sents = tgt_sents[:len(src_sents)]
     else:
@@ -201,8 +230,8 @@ tgt_sents = data_cp['tgt']
 src_sents = data_cp['src']
 words = data_cp['words']
 max_len = data_cp['max_sent_len']
-max_len += 3  # extra tokens for SOS, EOS, OpType
-print('max_len', max_len)
+max_len += 3  # extra tokens for SOSOpType, EOS, PAD
+print('max_len with extra_tokens=', max_len)
 word2idx = data_cp['word2idx']
 idx2word = data_cp['idx2word']
 word_emb = data_cp['word_emb']
@@ -295,7 +324,8 @@ def get_noisy_tensor_grad(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
         tensor[1:eos_index] = tensor[1:eos_index][torch.randperm(eos_index - 1)]
         # drop_mask = torch.FloatTensor(tensor[1:eos_index].size(0)).uniform_(0, 1)
     except Exception as e:
-        logger.append_log('Exception', e, word2idx['EOS'], eos_index,'>>', tensor)
+        logger.append_log('Exception', e, word2idx['EOS'], eos_index,'>>',
+                          tensor, std_out=False)
     return tensor
 
 
@@ -418,18 +448,29 @@ y_src = data_tensors_cp['y_src']
 x_tgt = data_tensors_cp['x_tgt']
 y_tgt = data_tensors_cp['y_tgt']
 
-x_src = x_src.to(device)
-y_src = y_src.to(device)
-x_tgt = x_tgt.to(device)
-y_tgt = y_tgt.to(device)
+max_samples = int(config_dict['max_samples'])
+if x_src.size(0) > max_samples:
+    x_src = x_src[:max_samples]
+    y_src = y_src[:max_samples]
+    x_tgt = x_tgt[:max_samples]
+    y_tgt = y_tgt[:max_samples]
+    logger.append_log('trimmed tensor samples to size', x_src.size())
+
+# not loading whole data on GPU due to large size. load inside training iter
+# x_src = x_src.to(device)
+# y_src = y_src.to(device)
+# x_tgt = x_tgt.to(device)
+# y_tgt = y_tgt.to(device)
 logger.append_log('loaded tensors...', x_src.shape, y_src.shape,
                   x_tgt.shape, y_tgt.shape, x_src.is_cuda)
 
-
+del src_sents
+del tgt_sents
 pool.close()
 # create data loaders
 total_samples = len(x_src)
-train_size = int(0.9 * total_samples)
+val_split = config_dict["val_split"]
+train_size = int((1-val_split) * total_samples)
 test_size = total_samples - train_size
 ds_src = TensorDataset(x_src, y_src)
 ds_tgt = TensorDataset(x_tgt, y_tgt)
@@ -648,10 +689,10 @@ for epoch in range(resume_epoch, epochs):
                               use_cuda=True, enabled=False) as prof:
             iter_start_time = time.time()
 
-            in_src, in_tgt = data_src[0], data_tgt[
-                0]  # noisy, torch.Size([50, 21]) torch.Size([50])
-            org_src, org_tgt = data_src[1], data_tgt[
-                1]  # non-noisy original sentence tensors
+            # noisy, torch.Size([50, 21]) torch.Size([50])
+            in_src, in_tgt = data_src[0].to(device), data_tgt[0].to(device)
+            # non-noisy original sentence tensors
+            org_src, org_tgt = data_src[1].to(device), data_tgt[1].to(device)
 
             if not skip_disc:
                 optimD.zero_grad()
@@ -858,12 +899,22 @@ for epoch in range(resume_epoch, epochs):
 
             if iter_no % 50 == 0:
                 logger.append_log('epoch:{}/{} | iter:{}/{} | train_lossG={}, '
-                                  'train_lossD={}, duration={} secs'.format(
+                                  'train_lossD={}, duration={} secs/iter'.format(
                     epoch, epochs, iter_no, len(dl_src_train),
                     np.mean(epoch_loss_G), np.mean(epoch_loss_D),
                     (time.time() - iter_start_time)))
                 if test_mode:
                     break
+
+            if iter_no % config_dict['sample_generation_interval_iters'] == 0:
+                try:
+                    logger.append_log('samples:\n',
+                                      log_samples_text(samples, str(epoch)+'('+str(iter_no)+')'),
+                                      '\n')
+                    with open(run_path / 'samples.txt', 'a') as file:
+                        file.write(log_samples_text(samples, epoch))
+                except Exception as e:
+                    logger.append_log('log failed', e)
 
             # end of iter loop
         # end of profiler
@@ -920,7 +971,7 @@ for epoch in range(resume_epoch, epochs):
         break
 
     # logger.append_log some samples
-    if epoch % 2 == 0:
+    if epoch % 1 == 0:
         try:
             logger.append_log('samples:\n', log_samples_text(samples, epoch),
                               '\n')

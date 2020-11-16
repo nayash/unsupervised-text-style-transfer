@@ -47,12 +47,12 @@ class Logger:
         return " ".join([self.get_readable_ctime(),
                          threading.current_thread().name, level])
 
-    def append_log(self, *text, level=None):
+    def append_log(self, *text, level=None, std_out=True):
         level = Logger.LOGGING_LEVELS[1] if level is None else level
         text = ' '.join(str(t) for t in text)
         log_str = self.get_log_prefix_format(level) + r"\ " + text
         self.log_queue.append(log_str)
-        if self.std_out:
+        if std_out and self.std_out:
             print(log_str)
         if len(self.log_queue) >= self.LOG_QUEUE_SIZE:
             log_file = open(self.cleanup_file_path(self.file_path), "a+")

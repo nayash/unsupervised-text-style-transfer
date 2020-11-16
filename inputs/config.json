@@ -1,5 +1,6 @@
 {
-  "batch_size": 150,
+  "batch_size": 100,
+  "batch_preproc_buffer": 2e8,
   "hidden_dim": 200,
   "bidir": "True",
   "layers": 2,
@@ -11,8 +12,8 @@
   "drop_noise": 0.3,
   "gen_lr_sched": "cyclic",
   "gen_lr": 1e-4,
-  "base_lr": 1e-7,
-  "max_lr": 5e-6,
+  "base_lr": 1e-5,
+  "max_lr": 5e-4,
   "gen_weight_decay": 0,
   "gen_lr_reduce_factor": 0.1,
   "gen_lr_reduce_patience": 5,
@@ -33,5 +34,8 @@
   "use_attention": "False",
   "emb_do": 0.3,
   "adv_training": "True",
-  "max_sentence_len": 10
+  "max_sentence_len": 8,
+  "max_samples": 1e6,
+  "val_split": 0.05,
+  "sample_generation_interval_iters": 500
 }

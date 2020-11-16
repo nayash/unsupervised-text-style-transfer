@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 from utils import clean_text_yelp
 import numpy as np
 import sys
+import multiprocessing as mp
 
 """
 https://www.kaggle.com/yelp-dataset/yelp-dataset?select=yelp_academic_dataset_review.json
@@ -56,7 +57,7 @@ assert len(matches_text) == len(matches_stars), 'size of texts and review ' \
 def append_file(file_path, sent_list):
     with open(file_path, 'a') as file:
         file.write('\n'.join(sent_list))
-
+    
 
 src_sents = []
 tgt_sents = []

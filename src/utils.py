@@ -118,6 +118,44 @@ def vocab_from_pretrained_emb(emb_path, words):
     return word2idx, idx2word, word_emb, list(diff)
 
 
+def vocab_from_pretrained_emb_multiproc(emb_path, words, pool=None):
+    # buggy. don't use it
+    def get_emb(line):
+        split = line.split()
+        word = split[0]
+        if word not in words:
+            return None
+        emb = split[1:]
+        word2idx[word] = len(word2idx)
+        idx2word[len(idx2word)] = word
+        return [float(e) for e in emb]
+
+    def get_random_emb(word):
+        if word not in word2idx:
+            word2idx[word] = len(word2idx)
+            idx2word[len(idx2word)] = word
+            return np.random.uniform(0, 1, len(word_emb[-1]))
+        return None
+
+    word2idx = {}
+    idx2word = {}
+    word_emb = []
+    with open(emb_path) as file:
+        for i, line in enumerate(file):
+            results = pool.apply_async(get_emb, args=[line])
+            word_emb.append([res.get() for res in results if res.get()])
+
+    # now add words from corpus which are missing in Glove embeddings
+    diff = set(words).difference(word2idx.keys())
+    # print('extra words', len(diff))
+
+    for word in words:
+        results = pool.apply_async(get_random_emb, args=[word])
+        word_emb.append([res.get() for res in results if res.get()])
+
+    return word2idx, idx2word, word_emb, list(diff)
+
+
 def roll_prepend(tensor, prefix_num, dim=1):
     b = torch.roll(tensor, 1, dim)
     b[:, 0] = prefix_num
@@ -146,3 +184,9 @@ def is_sent_shorter(sent, max_len):
 
 def len_word_tokenize(sent):
     return len(word_tokenize(sent))
+
+
+def clean_text_wrapper(clean_text_func, text, max_len):
+    sent = clean_text_func(text)
+    is_short = is_sent_shorter(sent, max_len)
+    return sent if is_short else None
