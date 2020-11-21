@@ -44,12 +44,22 @@ saw they would be showing infamous eggs of the House of Faberge from the Virgini
 
 reg_pattern_text = r'\"text\"\:\"(.*)\"\,'
 reg_pattern_stars = r'\"stars\"\:(\d+\.?\d*)\,'
+matches_text = []
+matches_stars = []
 with open(input_file, 'r') as infile:
-    content = infile.read()
-    matches_text = re.findall(reg_pattern_text, content)
-    matches_stars = np.array(re.findall(reg_pattern_stars, content)).astype(float)
+    count = 0
+    for content in infile:
+        text = re.findall(reg_pattern_text, content)[0]
+        text = text.replace('\\n', ' ')
+        matches_text.extend(sent_tokenize(text))
+        matches_stars.extend(re.findall(reg_pattern_stars, content))
+        count += 1
+        if count > 20:
+            break
 
-del content
+print('\n'.join(clean_text_yelp(sent) for sent in matches_text), matches_stars)
+print('parsed the json file')
+sys.exit()
 assert len(matches_text) == len(matches_stars), 'size of texts and review ' \
                                                  'stars parsed don\'t match'
 
@@ -63,9 +73,9 @@ src_sents = []
 tgt_sents = []
 for text, star in tqdm(zip(matches_text, matches_stars)):
     if star <= 3:
-        src_sents.extend(sent_tokenize(clean_text_yelp(text)))
+        src_sents.extend(sent_tokenize(text))
     else:
-        tgt_sents.extend(sent_tokenize(clean_text_yelp(text)))
+        tgt_sents.extend(sent_tokenize(text))
 
     if len(src_sents) >= 100000:
         append_file(out_src_file, src_sents)

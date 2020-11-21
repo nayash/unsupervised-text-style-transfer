@@ -157,49 +157,55 @@ tgt_sents = []
 
 if force_preproc or not data_cp_path.exists():
     buffer = int(config_dict['batch_preproc_buffer'])
-    logger.append_log(
-        'processing source sentences from {}, with batch size {}'.
+    logger.append_log('processing source sentences from {}, with batch size {}'.
             format(src_file_path, buffer))
     with open(src_file_path, encoding='utf-8', errors='ignore') as file:
+        stime = time.time()
         temp = file.readlines(buffer)
         batch_num = 0
+        sent_count = 0
         while temp:
-            stime = time.time()
-            results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
+            results = [pool.apply_async(clean_text_wrapper,
+                                        args=(clean_text_func, sent, max_len)) for
                          sent in temp]
-            src_sents.extend([res.get() for res in results if res.get()])
-            del results
-            del temp
-            temp = file.readlines(buffer)
-            print('processed batch {} in {} secs. current src list size: {}'.
-                  format(batch_num, (time.time()-stime), len(src_sents)))
             batch_num += 1
-            if len(src_sents) >= config_dict['max_samples']:
-                logger.append_log('reached ', len(src_sents),
+            sent_count += (batch_num*len(temp))
+            if sent_count >= config_dict['max_samples']:
+                logger.append_log('reached ', sent_count,
                                   ' src samples. skipping rest')
                 break
+            temp = file.readlines(buffer)
 
-    logger.append_log(
-        'processing target sentences from {}, with batch size {}'.
+    [res.wait() for res in results]
+    src_sents.extend([res.get() for res in results if res.get()])
+    del results
+    del temp
+    logger.append_log('process src sentence in', (time.time()-stime))
+
+    logger.append_log('processing target sentences from {}, with batch size {}'.
             format(tgt_file_path, buffer))
+
     with open(tgt_file_path, encoding='utf-8', errors='ignore') as file:
+        stime = time.time()
         temp = file.readlines(buffer)
         batch_num = 0
+        sent_count = 0
         while temp:
-            stime = time.time()
             results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
                          sent in temp]
-            tgt_sents.extend([res.get() for res in results if res.get()])
-            del results
-            del temp
-            temp = file.readlines(buffer)
-            print('processed batch {} in {} secs. current tgt list size: {}'.
-                  format(batch_num, (time.time() - stime), len(tgt_sents)))
             batch_num += 1
-            if len(tgt_sents) >= config_dict['max_samples']:
-                logger.append_log('reached ', len(tgt_sents),
+            sent_count += (batch_num * len(temp))
+            if sent_count >= config_dict['max_samples']:
+                logger.append_log('reached ', sent_count,
                                   ' tgt samples. skipping rest')
                 break
+            temp = file.readlines(buffer)
+
+    [res.wait() for res in results]
+    tgt_sents.extend([res.get() for res in results if res.get()])
+    del results
+    del temp
+    logger.append_log('process src sentence in', (time.time() - stime))
 
     print('size after discarding longer sentences', len(src_sents),
           len(tgt_sents))
@@ -221,8 +227,8 @@ if force_preproc or not data_cp_path.exists():
     logger.append_log('fetching word embeddings from Glove ...')
     extra_tokens = [SOS_SRC, SOS_TGT, 'EOS', 'PAD', 'UNK']
     words.extend(extra_tokens)
-    word2idx, idx2word, word_emb, diff = vocab_from_pretrained_emb(
-        GLOVE_PATH, words)
+    word2idx, idx2word, word_emb, diff = vocab_from_pretrained_emb_parallel(
+        GLOVE_PATH, words, pool, mp.cpu_count())
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents, 'words': words}
     max_len = max([pool.apply(len_word_tokenize, args=(sent)) for sent in src_sents + tgt_sents]) \
