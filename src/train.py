@@ -240,9 +240,10 @@ word_emb = data_cp['word_emb']
 # not used for now. need to figure out how to implement without
 # breaking gradients graph
 permute_prob = config_dict['permute_prob']
-drop_noise = config_dict['drop_noise']
+word_dropout = config_dict['word_dropout']
 noisy_input = bool(config_dict['noisy_input'])
 noisy_cd_input = bool(config_dict['noisy_cd_input'])
+shuffle_prob = config_dict['shuffle_prob']
 
 logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
@@ -269,14 +270,14 @@ def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len,
             temp.append(word2idx[_])
     words = word_tokenize(sentence.strip())
 
-    if dropout:
+    if dropout and np.random.uniform(0, 1) < word_dropout:
         drop_idx = np.random.randint(len(words))
         # don't drop NER mask token
         if not words[drop_idx].isupper() and \
                 not words[drop_idx] == '.' and not words[drop_idx] == '?':
             words = words[:drop_idx] + words[drop_idx + 1:]
 
-    if shuffle:
+    if shuffle and np.random.uniform(0,1) < shuffle_prob:
         words = permute_items(words, k=4)
 
     temp.extend([word2idx.get(w, word2idx['UNK']) for w in words])
@@ -293,7 +294,7 @@ def tensor_to_sentence(sent_tensor, idx2word=idx2word):
     return ' '.join(sent)
 
 
-def get_noisy_tensor(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
+def get_noisy_tensor(tensor, drop_prob=word_dropout, k=3, word2idx=word2idx):
     try:
         eos_index = (tensor == word2idx['EOS']).nonzero(as_tuple=False)[0][0]
     except:
@@ -306,7 +307,8 @@ def get_noisy_tensor(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
     drop_mask = torch.FloatTensor(proper_tensor.size(0)).uniform_(0, 1)
     res = proper_tensor[drop_mask > drop_prob]
 
-    res = permute_tensor(res)
+    if np.random.uniform(0, 1) < shuffle_prob:
+        res = permute_tensor(res, k)
     final[1:res.size(0) + 1] = res
     final[res.size(0) + 1] = word2idx['EOS']
     return final.long()
@@ -396,6 +398,19 @@ def log_samples_text(samples, epoch):
     return text
 
 
+def log_samples_text_interm(samples, epoch):
+    text = '-------------epoch=' + str(epoch) + '-------------\n'
+    for sample in samples[-2:]:
+        for i in range(len(sample[0])):
+            cd1 = 'CD src2tgt =>' + sample[0][i] + '-->' + sample[1][
+                i] + '-->' + sample[2][i]
+            cd2 = 'CD tgt2src =>' + sample[3][i] + '-->' + sample[4][
+                i] + '-->' + sample[5][i]
+            text += cd1 + '\n' + cd2 + '\n\n'
+        text += '\n*********************\n'
+    return text
+
+
 if force_preproc or not tensors_path.exists():
     logger.append_log('converting sentences to tensors...')
     x_src = []
@@ -407,14 +422,15 @@ if force_preproc or not tensors_path.exists():
         tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
         assert tensor.size(0) == max_len, ''+str(tensor.size(0))+','+\
                                           str(max_len)+','+src_sent
-        x_src.append(get_noisy_tensor(tensor) if noisy_input else tensor)
+        # drop_prob is 0 because word dropout is handled by Generator Dropout module
+        x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
         y_src.append(tensor.clone())
 
     for i, q in enumerate(tgt_sents):
-        tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='pos')
+        tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
         assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
             max_len) + ',' + q
-        x_tgt.append(get_noisy_tensor(tensor) if noisy_input else tensor)
+        x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
         y_tgt.append(tensor.clone())
 
     x_src = torch.stack(x_src)
@@ -471,6 +487,7 @@ pool.close()
 # create data loaders
 total_samples = len(x_src)
 val_split = config_dict["val_split"]
+assert 1 > val_split >= 0, 'validation split should be float in range [0, 1)'
 train_size = int((1-val_split) * total_samples)
 test_size = total_samples - train_size
 ds_src = TensorDataset(x_src, y_src)
@@ -507,7 +524,7 @@ generator = GeneratorModel(input_vocab, config_dict['hidden_dim'],
                            bidirectional=bool(config_dict['bidir']),
                            lstm_do=config_dict['lstm_do'],
                            use_attn=config_dict['use_attention'],
-                           emb_do=config_dict['emb_do'])
+                           emb_do=config_dict['emb_do'], word_do=word_dropout)
 
 if not skip_disc:
     clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
@@ -629,10 +646,11 @@ train_lossesG = []
 train_lossesD = []
 start_time = time.time()
 prev_best_loss = np.inf
-early_stop_patience = 30  # lr_reduce_patience * 3
+early_stop_patience = config_dict['early_stop_patience']  # lr_reduce_patience * 3
 early_stop_counter = 0
 scaler = StandardScaler()
 disc_noise_prob = 0.2
+prof = None
 
 lambda_auto = config_dict['wgt_loss_auto']
 lambda_cd = config_dict['wgt_loss_cd']
@@ -792,7 +810,8 @@ for epoch in range(resume_epoch, epochs):
                 # scaler.step(optimG)
                 optimG.step()
 
-            # weight_clip(generator, 5)
+            if config_dict['gen_wt_clip'] > 0:
+                weight_clip(generator, config_dict['gen_wt_clip'])
 
             epoch_loss_G.append(lossG.item())
             samples.append((row_apply(org_src[:5], tensor_to_sentence, False),
@@ -876,7 +895,8 @@ for epoch in range(resume_epoch, epochs):
                         lat_clf.parameters(), config_dict['disc_grad_clip'])
                     # scaler.step(optimD)
                     optimD.step()
-                    # weight_clip(lat_clf, 1)
+                    if config_dict['disc_wt_clip'] > 0:
+                        weight_clip(lat_clf, 1)
                 else:
                     lossD = zero_tensor
 
@@ -911,15 +931,35 @@ for epoch in range(resume_epoch, epochs):
                 if test_mode and iter_no > 2:
                     break
 
-            if iter_no % config_dict['sample_generation_interval_iters'] == 0:
+            if iter_no % config_dict['sample_generation_interval_iters'] == 0 or test_mode:
                 try:
-                    logger.append_log('samples:\n',
-                                      log_samples_text(samples, str(epoch)+'('+str(iter_no)+')'),
-                                      '\n')
-                    with open(run_path / 'samples.txt', 'a') as file:
-                        file.write(log_samples_text(samples, epoch))
-                    val_loss_temp = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
-                    logger.append_log('intermediate val loss', val_loss_temp)
+                    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
+                    logger.append_log('intermediate val loss', val_loss, prev_best_loss)
+                    if val_loss < prev_best_loss:
+                        prev_best_loss = val_loss
+                        state = {'epoch': epoch,
+                                 'modelG': generator.state_dict(),
+                                 'modelD': lat_clf.state_dict() if not skip_disc else {},
+                                 'optim_stateD': optimD.state_dict() if not skip_disc else {},
+                                 'optim_stateG': optimG.state_dict(),
+                                 'lr_sched_g': lr_sched_G.state_dict(),
+                                 'lr_sched_d': lr_sched_D.state_dict() if not skip_disc else {},
+                                 'last_train_loss': epoch_loss_G[-1],
+                                 'last_val_loss': val_loss,
+                                 'iter': iter_no
+                                 }
+                        torch.save(generator.state_dict(),
+                                   run_path / 'best_modelG.pt')
+                        logger.append_log('saved iter best model')
+
+                        _ = log_samples_text_interm(samples, str(
+                                                  epoch) + '(' + str(
+                                                  iter_no) + ')')
+
+                        if bool(config_dict['print_samples']):
+                            logger.append_log('samples:\n', _, '\n')
+                        with open(run_path / 'samples.txt', 'a') as file:
+                            file.write(_)
                 except Exception as e:
                     logger.append_log('log failed', e)
 
@@ -947,8 +987,10 @@ for epoch in range(resume_epoch, epochs):
              'lr_sched_g': lr_sched_G.state_dict(),
              'lr_sched_d': lr_sched_D.state_dict() if not skip_disc else {},
              'last_train_loss': train_lossesG[-1],
-             'last_val_loss': val_loss
+             'last_val_loss': val_loss,
+             'iter': 0
              }
+
     if val_loss < prev_best_loss:
         prev_best_loss = val_loss
         torch.save(generator.state_dict(), run_path / 'best_modelG.pt')
@@ -980,14 +1022,16 @@ for epoch in range(resume_epoch, epochs):
     # logger.append_log some samples
     if epoch % 1 == 0:
         try:
-            logger.append_log('samples:\n', log_samples_text(samples, epoch),
-                              '\n')
+            _ = log_samples_text(samples, epoch)
+            if bool(config_dict['print_samples']):
+                logger.append_log('samples:\n', _,
+                                  '\n')
             with open(run_path / 'samples.txt', 'a') as file:
-                file.write(log_samples_text(samples, epoch))
+                file.write(_)
         except Exception as e:
             logger.append_log('log failed', e)
 
-        if test_mode and epoch > 1:
+        if test_mode:
             break
 
 #     if early_stop_counter > early_stop_patience:

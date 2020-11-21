@@ -7,7 +7,7 @@ from constants import *
 
 class Encoder(nn.Module):
     def __init__(self, input_size, hidden_size, word_emb_tensor, device, batch_first=True,
-                 layers=1, bidirectional=False, dropout=0.0, emb_do=0.0):
+                 layers=1, bidirectional=False, dropout=0.0, word_do=0.0):
         super(Encoder, self).__init__()
 
         self.device = device
@@ -17,7 +17,7 @@ class Encoder(nn.Module):
         self.bidirectional = bidirectional
         self.input_size = input_size  # size of input vocab
         self.emb = nn.Embedding(input_size, hidden_size)
-        self.emb_do = nn.Dropout(emb_do)
+        self.word_do = nn.Dropout2d(word_do)
         self.emb.load_state_dict({'weight': word_emb_tensor})
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
@@ -26,7 +26,7 @@ class Encoder(nn.Module):
 
     def forward(self, input, hidden):
         emb = self.emb(input)  # (batch, input_size, hidden_size)
-        emb = self.emb_do(emb)
+        emb = self.word_do(emb)  # randomly sets 
         if not self.batch_first:
             emb = emb.permute(1, 0, 2)
 
@@ -146,7 +146,7 @@ class Decoder(nn.Module):
 class GeneratorModel(nn.Module):
     def __init__(self, input_vocab, hidden_size, batch_size, word_emb_tensor,
                  device, batch_first=True, layers=1, bidirectional=False,
-                 lstm_do=0.0, use_attn=False, emb_do=0):
+                 lstm_do=0.0, use_attn=False, emb_do=0, word_do=0.0):
         super(GeneratorModel, self).__init__()
         self.device = device
         self.batch_size = batch_size
@@ -154,7 +154,7 @@ class GeneratorModel(nn.Module):
         self.encoder = Encoder(input_vocab, hidden_size, word_emb_tensor,
                                device, batch_first=batch_first,
                                bidirectional=bidirectional, layers=layers,
-                               dropout=lstm_do, emb_do=emb_do)
+                               dropout=lstm_do, word_do=word_do)
         self.decoder = Decoder(input_vocab, hidden_size, word_emb_tensor,
                                device, layers=layers,
                                bidirectional=bidirectional,

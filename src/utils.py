@@ -40,11 +40,13 @@ def clean_text_yelp(text):
     # text = ''.join(text)
     text = text.lower()
     text = text.replace('_num_', 'NUMBER')
-    text = text.replace("n't", ' not')
+    text = text.replace("n't", ' not')  # wrong change it
     # text = text.replace(" 's", 's')
     text = text.replace(" 've", ' have')
+    text = text.replace(" ve", ' have')
     text = text.replace(" 'd", ' would')
     text = text.replace(" 'm", ' am')
+    text = text.replace(" m ", ' am ')
     text = text.replace("&", 'and')
     text = text.replace('\\n','').replace("\\","")
     text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:]', ' ', text)
@@ -171,6 +173,12 @@ def permute_tensor(tensor, k=3):
     c = torch.FloatTensor(tensor.size(0)).uniform_(
         0, k+1)+torch.arange(tensor.size(0))
     return tensor[torch.argsort(c)]
+
+
+def permute_tensor(tensor, k=3):
+    c = torch.FloatTensor(tensor.size(1)).uniform_(
+        0, k+1)+torch.arange(tensor.size(1))
+    return tensor[:,torch.argsort(c)]
 
 
 def get_readable_ctime():
