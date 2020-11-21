@@ -1,3 +1,13 @@
+#
+# Copyright (c) 2020. Asutosh Nayak (nayak.asutosh@ymail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+
 import re
 import calendar
 import unicodedata
@@ -91,8 +101,7 @@ def get_vocab_dicts(words):
     return word2idx, idx2word
 
 
-def vocab_from_pretrained_emb(emb_path, words):
-    # TODO skip glove embeddings for out of vocab words
+def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
     word2idx = {}
     idx2word = {}
     word_emb = []
@@ -103,59 +112,51 @@ def vocab_from_pretrained_emb(emb_path, words):
             if word not in words:
                 continue
             emb = split[1:]
-            word2idx[word] = len(word2idx)
-            idx2word[len(idx2word)] = word
+            word2idx[word] = len(word2idx)+start
+            idx2word[len(idx2word)+start] = word
             word_emb.append([float(i) for i in emb])
 
-    # now add words from corpus which are missing in Glove embeddings
-    diff = set(words).difference(word2idx.keys())
-    # print('extra words', len(diff))
-
-    for word in words:
-        if word not in word2idx:
-            word2idx[word] = len(word2idx)
-            idx2word[len(idx2word)] = word
-            word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
-
-    return word2idx, idx2word, word_emb, list(diff)
+    # print('start-end', start, end)
+    # print('thread lens', len(word2idx), len(idx2word), len(word_emb),
+    #       list(word2idx.values())[0], list(word2idx.values())[-1], list(idx2word.keys())[0],
+    #       list(idx2word.keys())[-1])
+    return word2idx, idx2word, word_emb
 
 
-def vocab_from_pretrained_emb_multiproc(emb_path, words, pool=None):
-    # buggy. don't use it
-    def get_emb(line):
-        split = line.split()
-        word = split[0]
-        if word not in words:
-            return None
-        emb = split[1:]
-        word2idx[word] = len(word2idx)
-        idx2word[len(idx2word)] = word
-        return [float(e) for e in emb]
-
-    def get_random_emb(word):
-        if word not in word2idx:
-            word2idx[word] = len(word2idx)
-            idx2word[len(idx2word)] = word
-            return np.random.uniform(0, 1, len(word_emb[-1]))
-        return None
-
+def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3):
     word2idx = {}
     idx2word = {}
     word_emb = []
-    with open(emb_path) as file:
-        for i, line in enumerate(file):
-            results = pool.apply_async(get_emb, args=[line])
-            word_emb.append([res.get() for res in results if res.get()])
+    results = []
+
+    offset = len(words) // workers
+    for i in range(workers):
+        s = i*offset
+        e = s+offset-1
+        results.append(pool.apply_async(vocab_from_pretrained_emb,
+                                   args=[emb_path, words[s:e+1], s, e]))
+    [res.wait() for res in results]
+    for res in results:
+        _ = res.get()
+        # print('post-proc', list(_[0].values())[0], list(_[0].values())[-1], list(_[1].keys())[0],
+        #   list(_[1].keys())[-1], len(_[2]))
+        word2idx.update(_[0])
+        idx2word.update(_[1])
+        word_emb.extend(_[2])
 
     # now add words from corpus which are missing in Glove embeddings
     diff = set(words).difference(word2idx.keys())
-    # print('extra words', len(diff))
-
-    for word in words:
-        results = pool.apply_async(get_random_emb, args=[word])
-        word_emb.append([res.get() for res in results if res.get()])
-
-    return word2idx, idx2word, word_emb, list(diff)
+    # print('words not found in Glove', len(diff), len(word2idx), len(idx2word), len(word_emb))
+    # print(list(diff)[:100])
+    # for word in diff:
+    #     word2idx[word] = len(word2idx)
+    #     if len(idx2word) in idx2word:
+    #         raise Exception("word index already exists", len(idx2word),
+    #                         idx2word[len(idx2word)], word)
+    #     idx2word[len(idx2word)] = word
+    #     word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+    # print('after adding extra words', len(word2idx), len(idx2word), len(word_emb))
+    return word2idx, idx2word, word_emb
 
 
 def roll_prepend(tensor, prefix_num, dim=1):
@@ -178,7 +179,7 @@ def permute_tensor(tensor, k=3):
 def permute_tensor(tensor, k=3):
     c = torch.FloatTensor(tensor.size(1)).uniform_(
         0, k+1)+torch.arange(tensor.size(1))
-    return tensor[:,torch.argsort(c)]
+    return tensor[:, torch.argsort(c)]
 
 
 def get_readable_ctime():

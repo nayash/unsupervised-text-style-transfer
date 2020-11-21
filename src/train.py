@@ -1,3 +1,13 @@
+#
+# Copyright (c) 2020. Asutosh Nayak (nayak.asutosh@ymail.com)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+
 from models import *
 import os
 import pickle
@@ -139,7 +149,7 @@ with open(config_path, 'r') as file:
 logger.append_log('config: ', config_dict)
 
 max_len = config_dict["max_sentence_len"]
-data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pt')
+data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pk')
 tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
 src_sents = []
 tgt_sents = []
@@ -414,29 +424,29 @@ def log_samples_text_interm(samples, epoch):
 if force_preproc or not tensors_path.exists():
     logger.append_log('converting sentences to tensors...')
     x_src = []
-    y_src = []
+    # y_src = []
     x_tgt = []
-    y_tgt = []
+    # y_tgt = []
 
     for i, src_sent in enumerate(src_sents):
         tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
         assert tensor.size(0) == max_len, ''+str(tensor.size(0))+','+\
                                           str(max_len)+','+src_sent
         # drop_prob is 0 because word dropout is handled by Generator Dropout module
-        x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
-        y_src.append(tensor.clone())
+        # x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
+        x_src.append(tensor.clone())
 
     for i, q in enumerate(tgt_sents):
         tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
         assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
             max_len) + ',' + q
-        x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
-        y_tgt.append(tensor.clone())
+        # x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
+        x_tgt.append(tensor.clone())
 
     x_src = torch.stack(x_src)
-    y_src = torch.stack(y_src)
+    # y_src = torch.stack(y_src)
     x_tgt = torch.stack(x_tgt)
-    y_tgt = torch.stack(y_tgt)
+    # y_tgt = torch.stack(y_tgt)
 
     delta = x_tgt.shape[0] - x_src.shape[0]
     if delta > 0:
@@ -461,16 +471,16 @@ if device == 'cpu':
 data_tensors_cp = torch.load(tensors_path)
 
 x_src = data_tensors_cp['x_src']
-y_src = data_tensors_cp['y_src']
+# y_src = data_tensors_cp['y_src']
 x_tgt = data_tensors_cp['x_tgt']
-y_tgt = data_tensors_cp['y_tgt']
+# y_tgt = data_tensors_cp['y_tgt']
 
 max_samples = int(config_dict['max_samples'])
 if x_src.size(0) > max_samples:
     x_src = x_src[:max_samples]
-    y_src = y_src[:max_samples]
+    # y_src = y_src[:max_samples]
     x_tgt = x_tgt[:max_samples]
-    y_tgt = y_tgt[:max_samples]
+    # y_tgt = y_tgt[:max_samples]
     logger.append_log('trimmed tensor samples to size', x_src.size())
 
 # not loading whole data on GPU due to large size. load inside training iter
@@ -490,8 +500,8 @@ val_split = config_dict["val_split"]
 assert 1 > val_split >= 0, 'validation split should be float in range [0, 1)'
 train_size = int((1-val_split) * total_samples)
 test_size = total_samples - train_size
-ds_src = TensorDataset(x_src, y_src)
-ds_tgt = TensorDataset(x_tgt, y_tgt)
+ds_src = TensorDataset(x_src)
+ds_tgt = TensorDataset(x_tgt)
 ds_src_train, ds_src_test = random_split(ds_src, [train_size, test_size],
                                          generator=torch.Generator().manual_seed(
                                              seed))
@@ -500,11 +510,11 @@ ds_tgt_train, ds_tgt_test = random_split(ds_tgt, [train_size, test_size],
                                              seed))
 
 dl_src_train = DataLoader(ds_src_train, batch_size=config_dict['batch_size'],
-                          drop_last=True, num_workers=0,
-                          pin_memory=False)
+                          drop_last=True, num_workers=4,
+                          pin_memory=True)
 dl_tgt_train = DataLoader(ds_tgt_train, batch_size=config_dict['batch_size'],
-                          drop_last=True, num_workers=0,
-                          pin_memory=False)
+                          drop_last=True, num_workers=4,
+                          pin_memory=True)
 
 dl_src_test = DataLoader(ds_src_test, batch_size=config_dict['batch_size'],
                          drop_last=True)
@@ -712,10 +722,12 @@ for epoch in range(resume_epoch, epochs):
                               use_cuda=True, enabled=False) as prof:
             iter_start_time = time.time()
 
-            # noisy, torch.Size([50, 21]) torch.Size([50])
-            in_src, in_tgt = data_src[0].to(device), data_tgt[0].to(device)
-            # non-noisy original sentence tensors
-            org_src, org_tgt = data_src[1].to(device), data_tgt[1].to(device)
+            # non-noisy tensors [batch, seq_len, emb_dim]
+            org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
+            # add shuffle noise, word drop out is done by model
+            in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
+
+            assert not torch.eq(org_src, in_src), not torch.eq(org_tgt, in_tgt)
 
             if not skip_disc:
                 optimD.zero_grad()
