@@ -8,6 +8,8 @@ from utils import clean_text_yelp
 import numpy as np
 import sys
 import multiprocessing as mp
+import time
+import fcntl
 
 """
 https://www.kaggle.com/yelp-dataset/yelp-dataset?select=yelp_academic_dataset_review.json
@@ -17,8 +19,9 @@ ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
 file_name = 'yelp_academic_dataset_review.json'
 INPUT_PATH = ROOT_PATH / ('./inputs/'+file_name)
 OUTPUT_PATH = ROOT_PATH / './inputs/yelp-reviews-preprocessed'
-src_output_file_name = 'sentiment.0.all.txt'
-tgt_output_file_name = 'sentiment.1.all.txt'
+src_output_file_name = 'sentiment.0.all_.txt'
+tgt_output_file_name = 'sentiment.1.all_.txt'
+start_time = time.time()
 
 argparser = argparse.ArgumentParser()
 
@@ -49,44 +52,62 @@ matches_stars = []
 with open(input_file, 'r') as infile:
     count = 0
     for content in infile:
-        text = re.findall(reg_pattern_text, content)[0]
-        text = text.replace('\\n', ' ')
-        matches_text.extend(sent_tokenize(text))
+        matches_text.extend(re.findall(reg_pattern_text, content))
         matches_stars.extend(re.findall(reg_pattern_stars, content))
         count += 1
-        if count > 20:
-            break
 
-print('\n'.join(clean_text_yelp(sent) for sent in matches_text), matches_stars)
-print('parsed the json file')
-sys.exit()
+# print(matches_text, matches_stars)
+
 assert len(matches_text) == len(matches_stars), 'size of texts and review ' \
                                                  'stars parsed don\'t match'
 
 
-def append_file(file_path, sent_list):
-    with open(file_path, 'a') as file:
-        file.write('\n'.join(sent_list))
-    
-
 src_sents = []
 tgt_sents = []
-for text, star in tqdm(zip(matches_text, matches_stars)):
-    if star <= 3:
-        src_sents.extend(sent_tokenize(text))
+
+
+def append_file(file_path, sent_list):
+    with open(file_path, 'a') as file:
+        fcntl.flock(file, fcntl.LOCK_EX)
+        file.write('\n'.join(sent_list))
+        fcntl.flock(file, fcntl.LOCK_UN)
+
+
+
+def append_list(text, star):
+    src_sents_temp = []
+    tgt_sents_temp = []
+    text = text.replace('\\n', ' ')
+    if float(star) <= 3:
+        src_sents_temp.extend(sent_tokenize(text))
     else:
-        tgt_sents.extend(sent_tokenize(text))
+        tgt_sents_temp.extend(sent_tokenize(text))
 
-    if len(src_sents) >= 100000:
-        append_file(out_src_file, src_sents)
-        src_sents.clear()
+    # if len(src_sents) >= 1000:
+    append_file(out_src_file, src_sents_temp)
+    # src_sents_temp.clear()
 
-    if len(tgt_sents) >= 100000:
-        append_file(out_tgt_file, tgt_sents)
-        tgt_sents.clear()
+    # if len(tgt_sents) >= 1000:
+    append_file(out_tgt_file, tgt_sents_temp)
+    # tgt_sents_temp.clear()
+
+
+pool = mp.Pool(mp.cpu_count())
+results = []
+workers = mp.cpu_count()
+offset = len(matches_text) // workers
+for i in range(workers):
+    s = i*offset
+    e = s+offset-1
+    results.append(pool.apply_async(append_list, args=[matches_text[s:e+1],
+                                                       matches_stars[s:e+1]]))
+
+[res.wait() for res in results]
+
 
 # flush out remaining sentences
 append_file(out_src_file, src_sents)
 append_file(out_tgt_file, tgt_sents)
 
 print('appended src and tgt files with new sentences')
+print('finished in ', (time.time()-start_time), 'secs')
