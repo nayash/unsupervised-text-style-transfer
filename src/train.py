@@ -732,7 +732,7 @@ for epoch in range(resume_epoch, epochs):
             org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
             # add shuffle noise, word drop out is done by model
             in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
-
+            # TODO remove after initial test
             assert not torch.eq(org_src, in_src), not torch.eq(org_tgt, in_tgt)
 
             if not skip_disc:

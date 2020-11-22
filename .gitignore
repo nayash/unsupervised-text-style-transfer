@@ -5,6 +5,8 @@
 /inputs/yelp_academic_dataset_review.json
 /inputs/yelp-reviews-preprocessed/sentiment.0.all.txt
 /inputs/yelp-reviews-preprocessed/sentiment.1.all.txt
+/inputs/yelp-reviews-preprocessed/sentiment.0.all_.txt
+/inputs/yelp-reviews-preprocessed/sentiment.1.all_.txt
 /.idea
 src/__pycache__/
 src/secrets.py
