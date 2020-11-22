@@ -19,8 +19,8 @@ ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
 file_name = 'yelp_academic_dataset_review.json'
 INPUT_PATH = ROOT_PATH / ('./inputs/'+file_name)
 OUTPUT_PATH = ROOT_PATH / './inputs/yelp-reviews-preprocessed'
-src_output_file_name = 'sentiment.0.all_.txt'
-tgt_output_file_name = 'sentiment.1.all_.txt'
+src_output_file_name = 'sentiment.0.all.txt'
+tgt_output_file_name = 'sentiment.1.all.txt'
 start_time = time.time()
 
 argparser = argparse.ArgumentParser()
@@ -80,21 +80,15 @@ def append_list(texts, stars):
     tgt_sents_temp = []
     for text, star in zip(texts, stars):
         text = text.replace('\\n', ' ')  # without this sentence split is worse
-        # print(text, star)
-        if float(star) <= 3:
+        if float(star) < 3:
             src_sents_temp.extend(sent_tokenize(text))
         else:
             tgt_sents_temp.extend(sent_tokenize(text))
-    # print('list lens', len(src_sents_temp), len(tgt_sents_temp))
-    if len(src_sents_temp) >= 1000:
-        q_src.put(src_sents_temp.copy())
-        # print('sent q_src', len(src_sents_temp))
-        src_sents_temp.clear()
+    q_src.put(src_sents_temp.copy())
+    src_sents_temp.clear()
 
-    if len(tgt_sents_temp) >= 1000:
-        q_tgt.put(tgt_sents_temp.copy())
-        # print('sent q_tgt', len(tgt_sents_temp))
-        tgt_sents_temp.clear()
+    q_tgt.put(tgt_sents_temp.copy())
+    tgt_sents_temp.clear()
 
 
 def listener_src(q, file_path):
@@ -131,7 +125,7 @@ watcher_tgt = pool.apply_async(listener_tgt, (q_tgt, out_tgt_file))
 results = []
 # workers = mp.cpu_count()
 offset = len(matches_text) // parts
-print('writing to file with multiple process...')
+print('writing to file with multiple processes...')
 for i in range(parts):
     s = i*offset
     e = s+offset-1 if i < parts-1 else -2

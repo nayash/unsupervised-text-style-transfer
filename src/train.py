@@ -157,7 +157,7 @@ tgt_sents = []
 
 if force_preproc or not data_cp_path.exists():
     buffer = int(config_dict['batch_preproc_buffer'])
-    logger.append_log('processing source sentences from {}, with batch size {}'.
+    logger.append_log('processing source sentences from {}, with buffer size {}'.
             format(src_file_path, buffer))
     with open(src_file_path, encoding='utf-8', errors='ignore') as file:
         stime = time.time()
@@ -180,9 +180,9 @@ if force_preproc or not data_cp_path.exists():
     src_sents.extend([res.get() for res in results if res.get()])
     del results
     del temp
-    logger.append_log('process src sentence in', (time.time()-stime))
+    logger.append_log('processed src sentences in', (time.time()-stime))
 
-    logger.append_log('processing target sentences from {}, with batch size {}'.
+    logger.append_log('processing target sentences from {}, with buffer size {}'.
             format(tgt_file_path, buffer))
 
     with open(tgt_file_path, encoding='utf-8', errors='ignore') as file:
@@ -205,7 +205,7 @@ if force_preproc or not data_cp_path.exists():
     tgt_sents.extend([res.get() for res in results if res.get()])
     del results
     del temp
-    logger.append_log('process src sentence in', (time.time() - stime))
+    logger.append_log('processed tgt sentences in', (time.time() - stime))
 
     print('size after discarding longer sentences', len(src_sents),
           len(tgt_sents))
@@ -227,8 +227,10 @@ if force_preproc or not data_cp_path.exists():
     logger.append_log('fetching word embeddings from Glove ...')
     extra_tokens = [SOS_SRC, SOS_TGT, 'EOS', 'PAD', 'UNK']
     words.extend(extra_tokens)
-    word2idx, idx2word, word_emb, diff = vocab_from_pretrained_emb_parallel(
-        GLOVE_PATH, words, pool, mp.cpu_count())
+    word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
+        GLOVE_PATH, words, pool, extra_tokens, mp.cpu_count())
+
+
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents, 'words': words}
     max_len = max([pool.apply(len_word_tokenize, args=(sent)) for sent in src_sents + tgt_sents]) \
@@ -255,7 +257,6 @@ word_emb = data_cp['word_emb']
 
 # not used for now. need to figure out how to implement without
 # breaking gradients graph
-permute_prob = config_dict['permute_prob']
 word_dropout = config_dict['word_dropout']
 noisy_input = bool(config_dict['noisy_input'])
 noisy_cd_input = bool(config_dict['noisy_cd_input'])
@@ -731,9 +732,11 @@ for epoch in range(resume_epoch, epochs):
             # non-noisy tensors [batch, seq_len, emb_dim]
             org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
             # add shuffle noise, word drop out is done by model
-            in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
+            in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt) \
+                if noisy_input else org_src, org_tgt
             # TODO remove after initial test
-            assert not torch.eq(org_src, in_src), not torch.eq(org_tgt, in_tgt)
+            if noisy_input:
+                assert not torch.eq(org_src, in_src), not torch.eq(org_tgt, in_tgt)
 
             if not skip_disc:
                 optimD.zero_grad()

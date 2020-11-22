@@ -108,6 +108,7 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
     word2idx = {}
     idx2word = {}
     word_emb = []
+    count = start
     with open(emb_path) as file:
         for i, line in enumerate(file):
             split = line.split()
@@ -115,9 +116,10 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
             if word not in words:
                 continue
             emb = split[1:]
-            word2idx[word] = len(word2idx)+start
-            idx2word[len(idx2word)+start] = word
+            word2idx[word] = count+start
+            idx2word[count+start] = word
             word_emb.append([float(i) for i in emb])
+            count += 1
 
     # print('start-end', start, end)
     # print('thread lens', len(word2idx), len(idx2word), len(word_emb),
@@ -126,7 +128,8 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
     return word2idx, idx2word, word_emb
 
 
-def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3):
+def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens=[],
+                                       workers=3):
     word2idx = {}
     idx2word = {}
     word_emb = []
@@ -151,13 +154,15 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3):
     diff = set(words).difference(word2idx.keys())
     # print('words not found in Glove', len(diff), len(word2idx), len(idx2word), len(word_emb))
     # print(list(diff)[:100])
-    # for word in diff:
-    #     word2idx[word] = len(word2idx)
-    #     if len(idx2word) in idx2word:
-    #         raise Exception("word index already exists", len(idx2word),
-    #                         idx2word[len(idx2word)], word)
-    #     idx2word[len(idx2word)] = word
-    #     word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+    idx = max(max(word2idx.values()), max(idx2word.keys()))+1
+    for word in extra_tokens:
+        word2idx[word] = idx
+        if idx in idx2word:
+            raise Exception("word index already exists", idx,
+                            idx2word[idx], word)
+        idx2word[idx] = word
+        word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+        idx += 1
     # print('after adding extra words', len(word2idx), len(idx2word), len(word_emb))
     return word2idx, idx2word, word_emb
 
@@ -173,10 +178,10 @@ def permute_items(collection, k=3):
     return list(np.array(collection)[np.argsort(q)])
 
 
-def permute_tensor(tensor, k=3):
-    c = torch.FloatTensor(tensor.size(0)).uniform_(
-        0, k+1)+torch.arange(tensor.size(0))
-    return tensor[torch.argsort(c)]
+# def permute_tensor(tensor, k=3):
+#     c = torch.FloatTensor(tensor.size(0)).uniform_(
+#         0, k+1)+torch.arange(tensor.size(0))
+#     return tensor[torch.argsort(c)]
 
 
 def permute_tensor(tensor, k=3):
