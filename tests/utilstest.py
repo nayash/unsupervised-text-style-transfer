@@ -31,6 +31,8 @@ class UtilsTest(unittest.TestCase):
         print('check', SOS_SRC in self.words, SOS_TGT in self.words)
         word2idx, idx2word, emb = vocab_from_pretrained_emb_parallel(self.emb_path, self.words,
                                            self.pool, self.extra_tokens, mp.cpu_count())
+        # word2idx, idx2word, emb = vocab_from_pretrained_emb(
+        #     self.emb_path, self.words, extra_tokens=self.extra_tokens)
         print('lengths', len(word2idx), len(idx2word), len(emb))
 
         for k, v in word2idx.items():
@@ -47,13 +49,13 @@ class UtilsTest(unittest.TestCase):
                 # if i > 100000:
                 #     break
 
-        # _ = list(word2idx.values())
-        # print(min(_), max(_), len(_))
-        # temp = np.arange(max(word2idx.values()) + 1)
-        # print(min(temp), max(temp), len(temp))
-        # assert np.array_equal(np.array(_), temp)
-        # _ = list(idx2word.keys())
-        # print(min(_), max(_), _[:50])
-        # assert np.array_equal(np.array(_), np.arange(max(idx2word.keys()) + 1))
+        _ = list(word2idx.values())
+        print(min(_), max(_), len(_))
+        temp = np.arange(max(word2idx.values()) + 1)
+        print(min(temp), max(temp), len(temp))
+        assert np.array_equal(np.array(_), temp)
+        _ = list(idx2word.keys())
+        print(min(_), max(_), _[:50])
+        assert np.array_equal(np.array(_), np.arange(max(idx2word.keys()) + 1))
         assert SOS_SRC in word2idx
         self.pool.close()

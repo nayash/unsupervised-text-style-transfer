@@ -1,6 +1,6 @@
 {
   "batch_size": 100,
-  "batch_preproc_buffer": 2e8,
+  "batch_preproc_buffer": 2e5,
   "hidden_dim": 200,
   "bidir": "True",
   "layers": 2,
@@ -38,7 +38,7 @@
   "emb_do": 0.2,
   "adv_training": true,
   "max_sentence_len": 8,
-  "max_samples": 2e6,
+  "max_samples": 1e3,
   "val_split": 0.025,
   "sample_generation_interval_iters": 500,
   "print_samples": true

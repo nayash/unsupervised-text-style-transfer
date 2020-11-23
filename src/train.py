@@ -37,6 +37,8 @@ from torch.cuda.amp import GradScaler
 import torch.autograd.profiler as profiler
 from constants import *
 import multiprocessing as mp
+import random
+from functools import partial
 
 '''
 supported arguments
@@ -153,9 +155,10 @@ data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pk')
 tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
 src_sents = []
 tgt_sents = []
+results = []
 
 
-if force_preproc or not data_cp_path.exists():
+if (force_preproc or not data_cp_path.exists()):
     buffer = int(config_dict['batch_preproc_buffer'])
     logger.append_log('processing source sentences from {}, with buffer size {}'.
             format(src_file_path, buffer))
@@ -165,19 +168,28 @@ if force_preproc or not data_cp_path.exists():
         batch_num = 0
         sent_count = 0
         while temp:
-            results = [pool.apply_async(clean_text_wrapper,
-                                        args=(clean_text_func, sent, max_len)) for
-                         sent in temp]
+            # results.extend([pool.apply_async(clean_text_wrapper,
+            #                             args=(clean_text_func, sent, max_len)) for
+            #              sent in temp])
+            src_sents.extend(pool.map(partial(clean_text_wrapper,
+                                              clean_text_func=clean_text_func,
+                                              max_len=max_len), temp))
+            src_sents = list(filter(None, src_sents))
             batch_num += 1
             sent_count += (batch_num*len(temp))
-            if sent_count >= config_dict['max_samples']:
-                logger.append_log('reached ', sent_count,
-                                  ' src samples. skipping rest')
+            print('src_sents', len(src_sents), config_dict['max_samples'])
+            # if sent_count >= 2e8 or sent_count > config_dict['max_samples']:
+            #     [res.wait() for res in results]
+            #     src_sents.extend([res.get() for res in results if res.get()])
+            #     print('src_sents/sent_count', len(src_sents), sent_count, batch_num, len(temp))
+            if len(src_sents) > config_dict['max_samples']:
+                logger.append_log('reached ', len(src_sents),
+                                       ' src samples. skipping rest')
                 break
             temp = file.readlines(buffer)
 
-    [res.wait() for res in results]
-    src_sents.extend([res.get() for res in results if res.get()])
+    # [res.wait() for res in results]
+    # src_sents.extend([res.get() for res in results if res.get()])
     del results
     del temp
     logger.append_log('processed src sentences in', (time.time()-stime))
@@ -191,38 +203,49 @@ if force_preproc or not data_cp_path.exists():
         batch_num = 0
         sent_count = 0
         while temp:
-            results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
-                         sent in temp]
+            # results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
+            #              sent in temp]
+            tgt_sents.extend(pool.map(
+                partial(clean_text_wrapper, clean_text_func=clean_text_func,
+                        max_len=max_len), temp))
+            tgt_sents = list(filter(None, tgt_sents))
             batch_num += 1
             sent_count += (batch_num * len(temp))
-            if sent_count >= config_dict['max_samples']:
-                logger.append_log('reached ', sent_count,
+            # if sent_count >= 2e8 or sent_count > config_dict['max_samples']:
+            #     [res.wait() for res in results]
+            #     tgt_sents.extend([res.get() for res in results if res.get()])
+            if len(tgt_sents) > config_dict['max_samples']:
+                logger.append_log('reached ', len(tgt_sents),
                                   ' tgt samples. skipping rest')
                 break
             temp = file.readlines(buffer)
 
-    [res.wait() for res in results]
-    tgt_sents.extend([res.get() for res in results if res.get()])
-    del results
+    # del results
     del temp
     logger.append_log('processed tgt sentences in', (time.time() - stime))
 
-    print('size after discarding longer sentences', len(src_sents),
+    print('number of src/tgt sentences collected', len(src_sents),
           len(tgt_sents))
+    random.shuffle(src_sents)
+    random.shuffle(tgt_sents)
     logger.append_log(src_sents[:5], tgt_sents[-5:])
-    # sys.exit()
+
     if len(src_sents) < len(tgt_sents):
         tgt_sents = tgt_sents[:len(src_sents)]
     else:
         src_sents = src_sents[:len(tgt_sents)]
 
     logger.append_log('building vocabulary...')
-    words = word_tokenize(' '.join(src_sents))
-    words.extend(word_tokenize(' '.join(tgt_sents)))
+    # words = word_tokenize(' '.join(src_sents))
+    # words.extend(word_tokenize(' '.join(tgt_sents)))
+    # words = parallelize(word_tokenize, src_sents+tgt_sents, pool, mp.cpu_count())
+    words = pool.map(word_tokenize, src_sents+tgt_sents)
+    words = [w for l in words for w in l]
+    print('total number of words is', len(words), words[:10])
     count_dict = Counter(words)
-    words = [w for w in count_dict.keys() if count_dict[w] > 1]
+    words = [w for w in count_dict.keys() if count_dict[w] > 2]
     words = list(set(words))
-    logger.append_log('number of words', len(words))
+    logger.append_log('unique number of words', len(words))
 
     logger.append_log('fetching word embeddings from Glove ...')
     extra_tokens = [SOS_SRC, SOS_TGT, 'EOS', 'PAD', 'UNK']
@@ -277,8 +300,14 @@ for k, v in word2idx.items():
     assert k == idx2word[v]
 
 
-def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len,
-                   prefix=None, shuffle=False, type='src', dropout=False):
+def sent_to_tensor(sentence, **kwargs):
+    word2idx = kwargs['word2idx'] if 'word2idx' in kwargs else word2idx
+    max_len = kwargs['max_len'] if 'max_len' in kwargs else max_len
+    prefix = kwargs['prefix'] if 'prefix' in kwargs else None
+    shuffle = kwargs['shuffle'] if 'shuffle' in kwargs else False
+    type = kwargs['type'] if 'type' in kwargs else 'src'
+    dropout = kwargs['dropout'] if 'dropout' in kwargs else False
+
     temp = []
     sos = word2idx[SOS_SRC] if type == 'src' else word2idx[SOS_TGT]
     temp.append(sos)
@@ -300,7 +329,7 @@ def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len,
     temp.extend([word2idx.get(w, word2idx['UNK']) for w in words])
     temp.append(word2idx['EOS'])
     temp.extend([word2idx['PAD']] * (max_len - len(temp)))
-    return torch.tensor(temp)  # , device=device
+    return torch.tensor(temp)
 
 
 def tensor_to_sentence(sent_tensor, idx2word=idx2word):
@@ -435,20 +464,24 @@ if force_preproc or not tensors_path.exists():
     x_tgt = []
     # y_tgt = []
 
-    for i, src_sent in enumerate(src_sents):
-        tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
-        assert tensor.size(0) == max_len, ''+str(tensor.size(0))+','+\
-                                          str(max_len)+','+src_sent
-        # drop_prob is 0 because word dropout is handled by Generator Dropout module
-        # x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
-        x_src.append(tensor.clone())
+    # for i, src_sent in enumerate(src_sents):
+    #     tensor = sent_to_tensor(src_sent.strip(), word2idx, max_len, type='src')
+    #     assert tensor.size(0) == max_len, ''+str(tensor.size(0))+','+\
+    #                                       str(max_len)+','+src_sent
+    #     # drop_prob is 0 because word dropout is handled by Generator Dropout module
+    #     # x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
+    #     x_src.append(tensor.clone())
 
-    for i, q in enumerate(tgt_sents):
-        tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
-        assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
-            max_len) + ',' + q
-        # x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
-        x_tgt.append(tensor.clone())
+    x_src = parallelize(sent_to_tensor, src_sents, pool, mp.cpu_count(), type='src')
+
+    # for i, q in enumerate(tgt_sents):
+    #     tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
+    #     assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
+    #         max_len) + ',' + q
+    #     # x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
+    #     x_tgt.append(tensor.clone())
+
+    x_tgt = parallelize(sent_to_tensor, tgt_sents, pool, mp.cpu_count(), type='tgt')
 
     x_src = torch.stack(x_src)
     # y_src = torch.stack(y_src)
@@ -459,17 +492,18 @@ if force_preproc or not tensors_path.exists():
     if delta > 0:
         indexes = np.random.choice(x_src.size(0), delta)
         x_src = torch.cat((x_src, x_src[indexes]))
-        y_src = torch.cat((y_src, y_src[indexes]))
+        # y_src = torch.cat((y_src, y_src[indexes]))
     else:
         indexes = np.random.choice(x_tgt.size(0), np.abs(delta))
         x_tgt = torch.cat((x_tgt, x_tgt[indexes]))
-        y_tgt = torch.cat((y_tgt, y_tgt[indexes]))
+        # y_tgt = torch.cat((y_tgt, y_tgt[indexes]))
 
     assert len(x_src) == len(x_tgt)
     # x_src.half(), y_src.half(), x_tgt.half(), y_tgt.half()
 
-    data_tensors_cp = {'x_src': x_src, 'y_src': y_src,
-                       'x_tgt': x_tgt, 'y_tgt': y_tgt}
+    data_tensors_cp = {'x_src': x_src, # 'y_src': y_src,
+                       'x_tgt': x_tgt #, 'y_tgt': y_tgt
+                       }
     torch.save(data_tensors_cp, str(tensors_path))
 
 device = 'cuda:0' if torch.cuda.is_available() and args.device == 'cuda' else 'cpu'
@@ -481,7 +515,7 @@ x_src = data_tensors_cp['x_src']
 # y_src = data_tensors_cp['y_src']
 x_tgt = data_tensors_cp['x_tgt']
 # y_tgt = data_tensors_cp['y_tgt']
-
+print('src & tgt size', x_src.shape, x_tgt.shape)
 max_samples = int(config_dict['max_samples'])
 if x_src.size(0) > max_samples:
     x_src = x_src[:max_samples]
@@ -495,8 +529,9 @@ if x_src.size(0) > max_samples:
 # y_src = y_src.to(device)
 # x_tgt = x_tgt.to(device)
 # y_tgt = y_tgt.to(device)
-logger.append_log('loaded tensors...', x_src.shape, y_src.shape,
-                  x_tgt.shape, y_tgt.shape, x_src.is_cuda)
+logger.append_log('loaded tensors...', x_src.shape, #y_src.shape,
+                  x_tgt.shape, #y_tgt.shape
+                x_src.is_cuda)
 
 del src_sents
 del tgt_sents
@@ -732,11 +767,13 @@ for epoch in range(resume_epoch, epochs):
             # non-noisy tensors [batch, seq_len, emb_dim]
             org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
             # add shuffle noise, word drop out is done by model
-            in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt) \
-                if noisy_input else org_src, org_tgt
+            if noisy_input:
+                in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
+            else:
+                in_src, int_tgt = org_src, org_tgt
             # TODO remove after initial test
             if noisy_input:
-                assert not torch.eq(org_src, in_src), not torch.eq(org_tgt, in_tgt)
+                assert not torch.eq(org_src, in_src).all(), not torch.eq(org_tgt, in_tgt).all()
 
             if not skip_disc:
                 optimD.zero_grad()

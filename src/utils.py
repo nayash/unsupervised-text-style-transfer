@@ -104,11 +104,12 @@ def get_vocab_dicts(words):
     return word2idx, idx2word
 
 
-def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
+def vocab_from_pretrained_emb(emb_path, words, start=0, end=0,
+                              batch_num=0, batch_size=0, extra_tokens=[]):
     word2idx = {}
     idx2word = {}
     word_emb = []
-    count = start
+    offset = (batch_size*batch_num)
     with open(emb_path) as file:
         for i, line in enumerate(file):
             split = line.split()
@@ -116,15 +117,20 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0):
             if word not in words:
                 continue
             emb = split[1:]
-            word2idx[word] = count+start
-            idx2word[count+start] = word
+            idx = len(word_emb)+offset
+            word2idx[word] = idx
+            idx2word[idx] = word
             word_emb.append([float(i) for i in emb])
-            count += 1
 
-    # print('start-end', start, end)
-    # print('thread lens', len(word2idx), len(idx2word), len(word_emb),
-    #       list(word2idx.values())[0], list(word2idx.values())[-1], list(idx2word.keys())[0],
-    #       list(idx2word.keys())[-1])
+    # if batch_size == 0:
+    #     for word in extra_tokens:
+    #         word2idx[word] = len(word_emb)
+    #         if len(word_emb) in idx2word:
+    #             raise Exception("word index already exists", len(word_emb),
+    #                             idx2word[len(word_emb)], word)
+    #         idx2word[len(word_emb)] = word
+    #         word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+
     return word2idx, idx2word, word_emb
 
 
@@ -140,30 +146,37 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens=[],
         s = i*offset
         e = s+offset-1
         results.append(pool.apply_async(vocab_from_pretrained_emb,
-                                   args=[emb_path, words[s:e+1], s, e]))
+                                   args=[emb_path, words[s:e+1], s, e, i, offset]))
     [res.wait() for res in results]
-    for res in results:
+    prev = None
+    # print('words', len(words))
+    for i, res in enumerate(results):
         _ = res.get()
-        # print('post-proc', list(_[0].values())[0], list(_[0].values())[-1], list(_[1].keys())[0],
-        #   list(_[1].keys())[-1], len(_[2]))
+        if prev:
+            prev_len = len(word2idx)
+            diff = i*offset - prev_len
+            _[1].clear()
+            temp = _[0].copy()
+            _[0].clear()
+            for k, v in temp.items():  # word2idx
+                _[0][k] = v-diff
+                _[1][v-diff] = k  # idx2word
+
         word2idx.update(_[0])
         idx2word.update(_[1])
         word_emb.extend(_[2])
+        prev = _[0]
 
     # now add words from corpus which are missing in Glove embeddings
-    diff = set(words).difference(word2idx.keys())
+    diff = list(set(words).difference(word2idx.keys()))
     # print('words not found in Glove', len(diff), len(word2idx), len(idx2word), len(word_emb))
-    # print(list(diff)[:100])
-    idx = max(max(word2idx.values()), max(idx2word.keys()))+1
-    for word in extra_tokens:
-        word2idx[word] = idx
-        if idx in idx2word:
-            raise Exception("word index already exists", idx,
-                            idx2word[idx], word)
-        idx2word[idx] = word
+    for word in diff:
+        word2idx[word] = len(word_emb)
+        if len(word_emb) in idx2word:
+            raise Exception("word index already exists", len(word_emb),
+                            idx2word[len(word_emb)], word)
+        idx2word[len(word_emb)] = word
         word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
-        idx += 1
-    # print('after adding extra words', len(word2idx), len(idx2word), len(word_emb))
     return word2idx, idx2word, word_emb
 
 
@@ -203,7 +216,31 @@ def len_word_tokenize(sent):
     return len(word_tokenize(sent))
 
 
-def clean_text_wrapper(clean_text_func, text, max_len):
+def clean_text_wrapper(text, clean_text_func, max_len):
+    # print(text, 'func=',clean_text_func, 'max_len',max_len)
     sent = clean_text_func(text)
     is_short = is_sent_shorter(sent, max_len)
     return sent if is_short else None
+
+
+def iter_apply(func, coll, **kwargs):
+    res = []
+    for item in coll:
+        res.append(func(item, **kwargs))
+    return res
+
+
+def parallelize(func, collection, pool, parts, **kwargs):
+    batch_size = len(collection)//parts
+    results = []
+    output = []
+
+    for i in range(parts):
+        s = i*batch_size
+        e = s+batch_size-1
+        results.append(pool.apply_async(iter_apply, args=[func, collection[s:e+1], [kwargs]]))
+
+    for res in results:
+        output.extend(res.get())
+
+    return output
