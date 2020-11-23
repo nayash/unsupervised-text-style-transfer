@@ -15,6 +15,7 @@ import numpy as np
 import torch
 import time
 from nltk.tokenize import sent_tokenize, word_tokenize
+from constants import *
 
 
 def unicodeToAscii(s):
@@ -244,3 +245,37 @@ def parallelize(func, collection, pool, parts, **kwargs):
         output.extend(res.get())
 
     return output
+
+
+def sent_to_tensor(sentence, **kwargs):
+    word2idx = kwargs['word2idx'] if 'word2idx' in kwargs else word2idx
+    max_len = kwargs['max_len'] if 'max_len' in kwargs else max_len
+    prefix = kwargs['prefix'] if 'prefix' in kwargs else None
+    shuffle = kwargs['shuffle'] if 'shuffle' in kwargs else False
+    type = kwargs['type'] if 'type' in kwargs else 'src'
+    dropout = kwargs['dropout'] if 'dropout' in kwargs else False
+    word_dropout = kwargs['word_dropout'] if 'word_dropout' in kwargs else 0
+    shuffle_prob = kwargs['shuffle_prob'] if 'shuffle_prob' in kwargs else 0
+
+    temp = []
+    sos = word2idx[SOS_SRC] if type == 'src' else word2idx[SOS_TGT]
+    temp.append(sos)
+    if prefix:
+        for _ in prefix.split():
+            temp.append(word2idx[_])
+    words = word_tokenize(sentence.strip())
+
+    if dropout and np.random.uniform(0, 1) < word_dropout:
+        drop_idx = np.random.randint(len(words))
+        # don't drop NER mask token
+        if not words[drop_idx].isupper() and \
+                not words[drop_idx] == '.' and not words[drop_idx] == '?':
+            words = words[:drop_idx] + words[drop_idx + 1:]
+
+    if shuffle and np.random.uniform(0,1) < shuffle_prob:
+        words = permute_items(words, k=4)
+
+    temp.extend([word2idx.get(w, word2idx['UNK']) for w in words])
+    temp.append(word2idx['EOS'])
+    temp.extend([word2idx['PAD']] * (max_len - len(temp)))
+    return torch.tensor(temp)

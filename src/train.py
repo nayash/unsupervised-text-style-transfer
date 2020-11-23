@@ -39,6 +39,9 @@ from constants import *
 import multiprocessing as mp
 import random
 from functools import partial
+import traceback
+
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 '''
 supported arguments
@@ -177,7 +180,6 @@ if (force_preproc or not data_cp_path.exists()):
             src_sents = list(filter(None, src_sents))
             batch_num += 1
             sent_count += (batch_num*len(temp))
-            print('src_sents', len(src_sents), config_dict['max_samples'])
             # if sent_count >= 2e8 or sent_count > config_dict['max_samples']:
             #     [res.wait() for res in results]
             #     src_sents.extend([res.get() for res in results if res.get()])
@@ -300,36 +302,36 @@ for k, v in word2idx.items():
     assert k == idx2word[v]
 
 
-def sent_to_tensor(sentence, **kwargs):
-    word2idx = kwargs['word2idx'] if 'word2idx' in kwargs else word2idx
-    max_len = kwargs['max_len'] if 'max_len' in kwargs else max_len
-    prefix = kwargs['prefix'] if 'prefix' in kwargs else None
-    shuffle = kwargs['shuffle'] if 'shuffle' in kwargs else False
-    type = kwargs['type'] if 'type' in kwargs else 'src'
-    dropout = kwargs['dropout'] if 'dropout' in kwargs else False
-
-    temp = []
-    sos = word2idx[SOS_SRC] if type == 'src' else word2idx[SOS_TGT]
-    temp.append(sos)
-    if prefix:
-        for _ in prefix.split():
-            temp.append(word2idx[_])
-    words = word_tokenize(sentence.strip())
-
-    if dropout and np.random.uniform(0, 1) < word_dropout:
-        drop_idx = np.random.randint(len(words))
-        # don't drop NER mask token
-        if not words[drop_idx].isupper() and \
-                not words[drop_idx] == '.' and not words[drop_idx] == '?':
-            words = words[:drop_idx] + words[drop_idx + 1:]
-
-    if shuffle and np.random.uniform(0,1) < shuffle_prob:
-        words = permute_items(words, k=4)
-
-    temp.extend([word2idx.get(w, word2idx['UNK']) for w in words])
-    temp.append(word2idx['EOS'])
-    temp.extend([word2idx['PAD']] * (max_len - len(temp)))
-    return torch.tensor(temp)
+# def sent_to_tensor(sentence, **kwargs):
+#     word2idx = kwargs['word2idx'] if 'word2idx' in kwargs else word2idx
+#     max_len = kwargs['max_len'] if 'max_len' in kwargs else max_len
+#     prefix = kwargs['prefix'] if 'prefix' in kwargs else None
+#     shuffle = kwargs['shuffle'] if 'shuffle' in kwargs else False
+#     type = kwargs['type'] if 'type' in kwargs else 'src'
+#     dropout = kwargs['dropout'] if 'dropout' in kwargs else False
+#
+#     temp = []
+#     sos = word2idx[SOS_SRC] if type == 'src' else word2idx[SOS_TGT]
+#     temp.append(sos)
+#     if prefix:
+#         for _ in prefix.split():
+#             temp.append(word2idx[_])
+#     words = word_tokenize(sentence.strip())
+#
+#     if dropout and np.random.uniform(0, 1) < word_dropout:
+#         drop_idx = np.random.randint(len(words))
+#         # don't drop NER mask token
+#         if not words[drop_idx].isupper() and \
+#                 not words[drop_idx] == '.' and not words[drop_idx] == '?':
+#             words = words[:drop_idx] + words[drop_idx + 1:]
+#
+#     if shuffle and np.random.uniform(0,1) < shuffle_prob:
+#         words = permute_items(words, k=4)
+#
+#     temp.extend([word2idx.get(w, word2idx['UNK']) for w in words])
+#     temp.append(word2idx['EOS'])
+#     temp.extend([word2idx['PAD']] * (max_len - len(temp)))
+#     return torch.tensor(temp)
 
 
 def tensor_to_sentence(sent_tensor, idx2word=idx2word):
@@ -472,8 +474,9 @@ if force_preproc or not tensors_path.exists():
     #     # x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
     #     x_src.append(tensor.clone())
 
-    x_src = parallelize(sent_to_tensor, src_sents, pool, mp.cpu_count(), type='src')
-
+    # x_src = parallelize(sent_to_tensor, src_sents, pool, mp.cpu_count(), type='src')
+    x_src = pool.map(partial(sent_to_tensor, type='src',
+                             max_len=max_len, word2idx=word2idx), src_sents)
     # for i, q in enumerate(tgt_sents):
     #     tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
     #     assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
@@ -481,7 +484,9 @@ if force_preproc or not tensors_path.exists():
     #     # x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
     #     x_tgt.append(tensor.clone())
 
-    x_tgt = parallelize(sent_to_tensor, tgt_sents, pool, mp.cpu_count(), type='tgt')
+    # x_tgt = parallelize(sent_to_tensor, tgt_sents, pool, mp.cpu_count(), type='tgt')
+    x_tgt = pool.map(partial(sent_to_tensor, max_len=max_len,
+                             word2idx=word2idx, type='tgt'), tgt_sents)
 
     x_src = torch.stack(x_src)
     # y_src = torch.stack(y_src)
@@ -532,6 +537,8 @@ if x_src.size(0) > max_samples:
 logger.append_log('loaded tensors...', x_src.shape, #y_src.shape,
                   x_tgt.shape, #y_tgt.shape
                 x_src.is_cuda)
+logger.append_log('sample sentences', x_src[0], tensor_to_sentence(x_src[0]),
+                  x_tgt[0], tensor_to_sentence(x_tgt[0]))
 
 del src_sents
 del tgt_sents
@@ -542,6 +549,7 @@ val_split = config_dict["val_split"]
 assert 1 > val_split >= 0, 'validation split should be float in range [0, 1)'
 train_size = int((1-val_split) * total_samples)
 test_size = total_samples - train_size
+print('split size', train_size, test_size)
 ds_src = TensorDataset(x_src)
 ds_tgt = TensorDataset(x_tgt)
 ds_src_train, ds_src_test = random_split(ds_src, [train_size, test_size],
@@ -679,15 +687,10 @@ def eval_model_tensor(generator, x, y, mode, word2idx):
 def eval_model_dl(generator, dl_src, dl_tgt, word2idx, device=device):
     generator.eval()
     loss = 0
-    for x, y in dl_src:
-        x = x.to(device)
-        y = y.to(device)
+    for x, y in zip(dl_src, dl_tgt):
+        x = x[0].to(device)
+        y = y[0].to(device)
         loss += eval_model_tensor(generator, x, y, src2tgt, word2idx)
-
-    for x, y in dl_tgt:
-        x = x.to(device)
-        y = y.to(device)
-        loss += eval_model_tensor(generator, x, y, tgt2src, word2idx)
 
     generator.train()
     return loss/(len(dl_src)+len(dl_tgt))
@@ -768,12 +771,13 @@ for epoch in range(resume_epoch, epochs):
             org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
             # add shuffle noise, word drop out is done by model
             if noisy_input:
-                in_src, int_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
+                in_src, in_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
             else:
-                in_src, int_tgt = org_src, org_tgt
+                in_src, in_tgt = org_src, org_tgt
             # TODO remove after initial test
-            if noisy_input:
-                assert not torch.eq(org_src, in_src).all(), not torch.eq(org_tgt, in_tgt).all()
+            # if noisy_input:  # may be happens sometimes with very small datasets
+            #     assert not torch.eq(org_src, in_src).all() and not torch.eq(org_tgt, in_tgt).all(), str(org_src)+'--'+str(in_src)+'****'+\
+            #     str(org_tgt) + '--' + str(in_tgt)
 
             if not skip_disc:
                 optimD.zero_grad()
@@ -1019,7 +1023,8 @@ for epoch in range(resume_epoch, epochs):
                         with open(run_path / 'samples.txt', 'a') as file:
                             file.write(_)
                 except Exception as e:
-                    logger.append_log('log failed', e)
+                    logger.append_log('log failed1', e)
+                    traceback.print_exc()
 
             # end of iter loop
         # end of profiler
@@ -1087,7 +1092,7 @@ for epoch in range(resume_epoch, epochs):
             with open(run_path / 'samples.txt', 'a') as file:
                 file.write(_)
         except Exception as e:
-            logger.append_log('log failed', e)
+            logger.append_log('log failed2', e)
 
         if test_mode:
             break
