@@ -36,7 +36,7 @@ class Encoder(nn.Module):
 
     def forward(self, input, hidden):
         emb = self.emb(input)  # (batch, input_size, hidden_size)
-        emb = self.word_do(emb)  # randomly sets 
+        emb = self.word_do(emb)  # randomly sets word embs to 0
         if not self.batch_first:
             emb = emb.permute(1, 0, 2)
 

@@ -154,16 +154,16 @@ with open(config_path, 'r') as file:
 logger.append_log('config: ', config_dict)
 
 max_len = config_dict["max_sentence_len"]
-data_cp_path = OUTPUT_PATH / ('data_cp'+str(max_len)+'.pk')
-tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
+data_cp_path = OUTPUT_PATH / ('data_cp' + str(max_len) + '.pk')
+tensors_path = OUTPUT_PATH / ('data_tensors_cp' + str(max_len) + '.pt')
 src_sents = []
 tgt_sents = []
 results = []
 
-
-if (force_preproc or not data_cp_path.exists()):
+if (force_preproc or not data_cp_path.exists()) and False:
     buffer = int(config_dict['batch_preproc_buffer'])
-    logger.append_log('processing source sentences from {}, with buffer size {}'.
+    logger.append_log(
+        'processing source sentences from {}, with buffer size {}'.
             format(src_file_path, buffer))
     with open(src_file_path, encoding='utf-8', errors='ignore') as file:
         stime = time.time()
@@ -176,17 +176,19 @@ if (force_preproc or not data_cp_path.exists()):
             #              sent in temp])
             src_sents.extend(pool.map(partial(clean_text_wrapper,
                                               clean_text_func=clean_text_func,
-                                              max_len=max_len), temp))
+                                              max_len=max_len), temp,
+                                      chunksize=10000))
             src_sents = list(filter(None, src_sents))
             batch_num += 1
-            sent_count += (batch_num*len(temp))
+            sent_count += (batch_num * len(
+                temp))  # count of how many sentences are processed total
             # if sent_count >= 2e8 or sent_count > config_dict['max_samples']:
             #     [res.wait() for res in results]
             #     src_sents.extend([res.get() for res in results if res.get()])
             #     print('src_sents/sent_count', len(src_sents), sent_count, batch_num, len(temp))
             if len(src_sents) > config_dict['max_samples']:
                 logger.append_log('reached ', len(src_sents),
-                                       ' src samples. skipping rest')
+                                  ' src samples. skipping rest')
                 break
             temp = file.readlines(buffer)
 
@@ -194,9 +196,11 @@ if (force_preproc or not data_cp_path.exists()):
     # src_sents.extend([res.get() for res in results if res.get()])
     del results
     del temp
-    logger.append_log('processed src sentences in', (time.time()-stime))
+    logger.append_log('processed src sentences in', (time.time() - stime),
+                      'secs')
 
-    logger.append_log('processing target sentences from {}, with buffer size {}'.
+    logger.append_log(
+        'processing target sentences from {}, with buffer size {}'.
             format(tgt_file_path, buffer))
 
     with open(tgt_file_path, encoding='utf-8', errors='ignore') as file:
@@ -207,9 +211,10 @@ if (force_preproc or not data_cp_path.exists()):
         while temp:
             # results = [pool.apply_async(clean_text_wrapper, args=(clean_text_func, sent, max_len)) for
             #              sent in temp]
-            tgt_sents.extend(pool.map(
-                partial(clean_text_wrapper, clean_text_func=clean_text_func,
-                        max_len=max_len), temp))
+            tgt_sents.extend(pool.map(partial(clean_text_wrapper,
+                                              clean_text_func=clean_text_func,
+                                              max_len=max_len),
+                                      temp, chunksize=10000))
             tgt_sents = list(filter(None, tgt_sents))
             batch_num += 1
             sent_count += (batch_num * len(temp))
@@ -224,7 +229,8 @@ if (force_preproc or not data_cp_path.exists()):
 
     # del results
     del temp
-    logger.append_log('processed tgt sentences in', (time.time() - stime))
+    logger.append_log('processed tgt sentences in', (time.time() - stime),
+                      'secs')
 
     print('number of src/tgt sentences collected', len(src_sents),
           len(tgt_sents))
@@ -241,7 +247,7 @@ if (force_preproc or not data_cp_path.exists()):
     # words = word_tokenize(' '.join(src_sents))
     # words.extend(word_tokenize(' '.join(tgt_sents)))
     # words = parallelize(word_tokenize, src_sents+tgt_sents, pool, mp.cpu_count())
-    words = pool.map(word_tokenize, src_sents+tgt_sents)
+    words = pool.map(word_tokenize, src_sents + tgt_sents)
     words = [w for l in words for w in l]
     print('total number of words is', len(words), words[:10])
     count_dict = Counter(words)
@@ -255,10 +261,9 @@ if (force_preproc or not data_cp_path.exists()):
     word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
         GLOVE_PATH, words, pool, extra_tokens, mp.cpu_count())
 
-
-
     data_cp = {'tgt': tgt_sents, 'src': src_sents, 'words': words}
-    max_len = max([pool.apply(len_word_tokenize, args=(sent)) for sent in src_sents + tgt_sents]) \
+    max_len = max([pool.apply(len_word_tokenize, args=(sent)) for sent in
+                   src_sents + tgt_sents]) \
         if max_len == -1 else max_len
     data_cp['max_sent_len'] = max_len
     data_cp['word2idx'] = word2idx
@@ -291,12 +296,13 @@ logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
 word_emb_tensor = torch.tensor(word_emb)
-word_emb_tensor = word_emb_tensor/torch.norm(word_emb_tensor, dim=1).unsqueeze(-1)
+word_emb_tensor = word_emb_tensor / torch.norm(word_emb_tensor,
+                                               dim=1).unsqueeze(-1)
 
 assert word_emb_tensor.size(-1) == config_dict['hidden_dim'], \
     'dimension of word embedding and hidden size passed in configuration ' \
-    'json are different. word embedding dim='+str(word_emb_tensor.size(-1))+\
-    ', hidden dim in config='+str(config_dict['hidden_dim'])
+    'json are different. word embedding dim=' + str(word_emb_tensor.size(-1)) + \
+    ', hidden dim in config=' + str(config_dict['hidden_dim'])
 
 for k, v in word2idx.items():
     assert k == idx2word[v]
@@ -375,7 +381,7 @@ def get_noisy_tensor_grad(tensor, drop_prob=0.1, k=3, word2idx=word2idx):
         tensor[1:eos_index] = tensor[1:eos_index][torch.randperm(eos_index - 1)]
         # drop_mask = torch.FloatTensor(tensor[1:eos_index].size(0)).uniform_(0, 1)
     except Exception as e:
-        logger.append_log('Exception', e, word2idx['EOS'], eos_index,'>>',
+        logger.append_log('Exception', e, word2idx['EOS'], eos_index, '>>',
                           tensor, std_out=False)
     return tensor
 
@@ -474,9 +480,22 @@ if force_preproc or not tensors_path.exists():
     #     # x_src.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
     #     x_src.append(tensor.clone())
 
-    # x_src = parallelize(sent_to_tensor, src_sents, pool, mp.cpu_count(), type='src')
-    x_src = pool.map(partial(sent_to_tensor, type='src',
-                             max_len=max_len, word2idx=word2idx), src_sents)
+    print('src_sents check', len(src_sents))
+    _ = time.time()
+    # x_src = parallelize(sent_to_tensor, src_sents, pool, mp.cpu_count()*3,
+    #                     type='src', max_len=max_len, word2idx=word2idx)
+
+    # src_iter = pool.imap(partial(sent_to_tensor, type='src',
+    #                          max_len=max_len, word2idx=word2idx), src_sents,
+    #                  chunksize=int(len(src_sents)/(3*mp.cpu_count())))
+    # x_src = pool.map(partial(sent_to_tensor, type='src', max_len=max_len,
+    #                              word2idx=word2idx), src_sents,
+    #                      chunksize=int(len(src_sents) / (3 * mp.cpu_count())))
+    [x_src.append(sent_to_tensor(sent, max_len=max_len, type='src',
+                                 word2idx=word2idx)) for sent in src_sents]
+    print('x_src', len(x_src), (time.time()-_))
+    # print('src gen-iter')
+    # [x_src.extend(x) for x in src_iter]
     # for i, q in enumerate(tgt_sents):
     #     tensor = sent_to_tensor(q.strip(), word2idx, max_len, type='tgt')
     #     assert tensor.size(0) == max_len, '' + str(tensor.size(0)) + ',' + str(
@@ -484,15 +503,24 @@ if force_preproc or not tensors_path.exists():
     #     # x_tgt.append(get_noisy_tensor(tensor, drop_prob=0) if noisy_input else tensor)
     #     x_tgt.append(tensor.clone())
 
-    # x_tgt = parallelize(sent_to_tensor, tgt_sents, pool, mp.cpu_count(), type='tgt')
-    x_tgt = pool.map(partial(sent_to_tensor, max_len=max_len,
-                             word2idx=word2idx, type='tgt'), tgt_sents)
-
+    _ = time.time()
+    # print('x_tgt check', len(tgt_sents))
+    # x_tgt = parallelize(sent_to_tensor, tgt_sents, pool, mp.cpu_count() * 3,
+    #                     type='tgt', max_len=max_len, word2idx=word2idx)
+    # tgt_iter = pool.imap(partial(sent_to_tensor, max_len=max_len,
+    #                          word2idx=word2idx, type='tgt'), tgt_sents,
+    #                  chunksize=int(len(src_sents)/(3*mp.cpu_count())))
+    # x_tgt.extend(next(tgt_iter))
+    # print('tgt gen-iter')
+    # [x_tgt.extend(x) for x in tgt_iter]
+    [x_tgt.append(sent_to_tensor(sent, max_len=max_len, type='tgt',
+                                 word2idx=word2idx)) for sent in tgt_sents]
+    print('x_tgt', len(x_tgt), (time.time()-_))
     x_src = torch.stack(x_src)
     # y_src = torch.stack(y_src)
     x_tgt = torch.stack(x_tgt)
     # y_tgt = torch.stack(y_tgt)
-
+    print("done")
     delta = x_tgt.shape[0] - x_src.shape[0]
     if delta > 0:
         indexes = np.random.choice(x_src.size(0), delta)
@@ -506,8 +534,8 @@ if force_preproc or not tensors_path.exists():
     assert len(x_src) == len(x_tgt)
     # x_src.half(), y_src.half(), x_tgt.half(), y_tgt.half()
 
-    data_tensors_cp = {'x_src': x_src, # 'y_src': y_src,
-                       'x_tgt': x_tgt #, 'y_tgt': y_tgt
+    data_tensors_cp = {'x_src': x_src,  # 'y_src': y_src,
+                       'x_tgt': x_tgt  # , 'y_tgt': y_tgt
                        }
     torch.save(data_tensors_cp, str(tensors_path))
 
@@ -534,9 +562,9 @@ if x_src.size(0) > max_samples:
 # y_src = y_src.to(device)
 # x_tgt = x_tgt.to(device)
 # y_tgt = y_tgt.to(device)
-logger.append_log('loaded tensors...', x_src.shape, #y_src.shape,
-                  x_tgt.shape, #y_tgt.shape
-                x_src.is_cuda)
+logger.append_log('loaded tensors...', x_src.shape,  # y_src.shape,
+                  x_tgt.shape,  # y_tgt.shape
+                  x_src.is_cuda)
 logger.append_log('sample sentences', x_src[0], tensor_to_sentence(x_src[0]),
                   x_tgt[0], tensor_to_sentence(x_tgt[0]))
 
@@ -547,7 +575,7 @@ pool.close()
 total_samples = len(x_src)
 val_split = config_dict["val_split"]
 assert 1 > val_split >= 0, 'validation split should be float in range [0, 1)'
-train_size = int((1-val_split) * total_samples)
+train_size = int((1 - val_split) * total_samples)
 test_size = total_samples - train_size
 print('split size', train_size, test_size)
 ds_src = TensorDataset(x_src)
@@ -571,8 +599,9 @@ dl_src_test = DataLoader(ds_src_test, batch_size=config_dict['batch_size'],
 dl_tgt_test = DataLoader(ds_tgt_test, batch_size=config_dict['batch_size'],
                          drop_last=True)
 
-logger.append_log('train/test size', len(dl_src_train)*config_dict['batch_size']
-                  , len(dl_src_test)*config_dict['batch_size'])
+logger.append_log('train/test size',
+                  len(dl_src_train) * config_dict['batch_size']
+                  , len(dl_src_test) * config_dict['batch_size'])
 
 # construct models, optimizers, losses
 input_vocab = len(word2idx)
@@ -646,11 +675,13 @@ if not skip_disc:
                                      alpha=0.99, eps=1e-08,
                                      weight_decay=config_dict['disc_weight_decay']
                                      , momentum=0.9, centered=False)
-        lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,config_dict['disc_base_lr'],
+        lr_sched_D = torch.optim.lr_scheduler.CyclicLR(optimD,
+                                                       config_dict['disc_base_lr'],
                                                        config_dict['disc_max_lr'],
                                                        step_size_up=2000,
                                                        step_size_down=None,
-                                                       mode='triangular', gamma=1.0,
+                                                       mode='triangular',
+                                                       gamma=1.0,
                                                        scale_mode='cycle',
                                                        last_epoch=-1)
     else:
@@ -659,7 +690,8 @@ if not skip_disc:
                                   betas=(0.5, 0.999),
                                   weight_decay=config_dict['disc_weight_decay'])
 
-        lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD, mode='min',
+        lr_sched_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimD,
+                                                                mode='min',
                                                                 factor=lr_reduce_factorD,
                                                                 patience=lr_reduce_patienceD,
                                                                 verbose=True,
@@ -669,19 +701,16 @@ if not skip_disc:
                                                                 min_lr=1e-8,
                                                                 eps=1e-08)
 
-# training code
 
+# training code
 
 def eval_model_tensor(generator, x, y, mode, word2idx):
     generator.set_mode(mode, word2idx)
     input = x if len(x.size()) > 1 \
         else x.view(1, -1)
     gen_out, gen_raw, enc_out = generator(input)
-    loss = 0
-    for k in range(gen_raw.size(0)):
-        loss += loss_ce(gen_raw[k], y[k])
 
-    return loss.item()
+    return gen_out, gen_raw
 
 
 def eval_model_dl(generator, dl_src, dl_tgt, word2idx, device=device):
@@ -690,10 +719,22 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx, device=device):
     for x, y in zip(dl_src, dl_tgt):
         x = x[0].to(device)
         y = y[0].to(device)
-        loss += eval_model_tensor(generator, x, y, src2tgt, word2idx)
+        gen_out, gen_raw = eval_model_tensor(generator, x, y, src2tgt,
+                                                      word2idx)
+        gen_out_bt, gen_raw_bt = eval_model_tensor(generator, gen_out, y, tgt2src,
+                                                      word2idx)
+        for k in range(gen_raw_bt.size(0)):
+            loss += loss_ce(gen_raw_bt[k], x[k]).item()
 
+    # log some samples from last batch
+    samples = '------------val_samples--------------\n'
+    for _ in zip(row_apply(x[::len(x)//10], tensor_to_sentence, False),
+                 row_apply(gen_out[::len(gen_out)//10], tensor_to_sentence, False)):
+        samples += _[0] + ' --> ' + _[1] + '\n'
+
+    logger.append_log(samples)
     generator.train()
-    return loss/(len(dl_src)+len(dl_tgt))
+    return loss / len(dl_src)
 
 
 epochs = config_dict['epoch']
@@ -719,15 +760,17 @@ if is_resume and resume_history.exists():
 
     resume_epoch = state['epoch']
     generator.load_state_dict(state['modelG'])
-    lat_clf.load_state_dict(state['modelD'])
     optimG.load_state_dict(state['optim_stateG'])
-    optimD.load_state_dict(state['optim_stateD'])
     lr_sched_G.load_state_dict(state['lr_sched_g'])
-    lr_sched_D.load_state_dict(state['lr_sched_d'])
+    if not skip_disc:
+        lat_clf.load_state_dict(state['modelD'])
+        optimD.load_state_dict(state['optim_stateD'])
+        lr_sched_D.load_state_dict(state['lr_sched_d'])
     prev_best_loss = state['last_val_loss']
 
     generator.to(device)
-    lat_clf.to(device)
+    if not skip_disc:
+        lat_clf.to(device)
     lr_reduce_patience = 10
     early_stop_patience = 50
     logger.append_log('lr_reduce_patience and early_stop_patience changed',
@@ -771,7 +814,8 @@ for epoch in range(resume_epoch, epochs):
             org_src, org_tgt = data_src[0].to(device), data_tgt[0].to(device)
             # add shuffle noise, word drop out is done by model
             if noisy_input:
-                in_src, in_tgt = permute_tensor(org_src), permute_tensor(org_tgt)
+                in_src, in_tgt = permute_tensor(org_src), permute_tensor(
+                    org_tgt)
             else:
                 in_src, in_tgt = org_src, org_tgt
             # TODO remove after initial test
@@ -993,10 +1037,13 @@ for epoch in range(resume_epoch, epochs):
                 if test_mode and iter_no > 2:
                     break
 
-            if iter_no % config_dict['sample_generation_interval_iters'] == 0 or test_mode:
+            if (iter_no % config_dict['sample_generation_interval_iters'] == 0 or test_mode)\
+                    and val_split > 0:
                 try:
-                    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
-                    logger.append_log('intermediate val loss', val_loss, prev_best_loss)
+                    val_loss = eval_model_dl(generator, dl_src_test,
+                                             dl_tgt_test, word2idx)
+                    logger.append_log('intermediate val loss', val_loss,
+                                      prev_best_loss)
                     if val_loss < prev_best_loss:
                         prev_best_loss = val_loss
                         state = {'epoch': epoch,
@@ -1014,14 +1061,14 @@ for epoch in range(resume_epoch, epochs):
                                    run_path / 'best_modelG.pt')
                         logger.append_log('saved iter best model')
 
-                        _ = log_samples_text_interm(samples, str(
-                                                  epoch) + '(' + str(
-                                                  iter_no) + ')')
+                    _ = log_samples_text_interm(samples, str(
+                        epoch) + '(' + str(
+                        iter_no) + ')')
 
-                        if bool(config_dict['print_samples']):
-                            logger.append_log('samples:\n', _, '\n')
-                        with open(run_path / 'samples.txt', 'a') as file:
-                            file.write(_)
+                    if bool(config_dict['print_samples']):
+                        logger.append_log('samples:\n', _, '\n')
+                    with open(run_path / 'samples.txt', 'a') as file:
+                        file.write(_)
                 except Exception as e:
                     logger.append_log('log failed1', e)
                     traceback.print_exc()
@@ -1032,7 +1079,8 @@ for epoch in range(resume_epoch, epochs):
     train_lossesD.append(np.mean(epoch_loss_D))
     train_lossesG.append(np.mean(epoch_loss_G))
 
-    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx)
+    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx) \
+        if val_split > 0 else 0
     # train_lossesG[-1]
     writer.add_scalar('loss/val_loss', val_loss, epoch)
 
@@ -1097,10 +1145,10 @@ for epoch in range(resume_epoch, epochs):
         if test_mode:
             break
 
-#     if early_stop_counter > early_stop_patience:
-#         logger.append_log('stopping early at {} epoch and loss {}'.
-#         format(epoch, val_loss))
-#         break
+    if early_stop_counter > early_stop_patience and config_dict['use_early_stop']:
+        logger.append_log('stopping early at {} epoch and loss {}'.
+                          format(epoch, val_loss))
+        break
 
 logger.append_log('training finished in {} mins'.
                   format((time.time() - start_time) / 60))

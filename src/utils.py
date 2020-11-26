@@ -224,7 +224,7 @@ def clean_text_wrapper(text, clean_text_func, max_len):
     return sent if is_short else None
 
 
-def iter_apply(func, coll, **kwargs):
+def iter_apply(func, coll, kwargs):
     res = []
     for item in coll:
         res.append(func(item, **kwargs))
@@ -239,7 +239,7 @@ def parallelize(func, collection, pool, parts, **kwargs):
     for i in range(parts):
         s = i*batch_size
         e = s+batch_size-1
-        results.append(pool.apply_async(iter_apply, args=[func, collection[s:e+1], [kwargs]]))
+        results.append(pool.apply_async(iter_apply, (func, collection[s:e+1], kwargs)))
 
     for res in results:
         output.extend(res.get())
