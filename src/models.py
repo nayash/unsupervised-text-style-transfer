@@ -104,7 +104,7 @@ class Decoder(nn.Module):
             emb = emb.permute(1, 0, 2)
 
         if self.use_attn:
-            # concat hidden and enc_out to find scores, the append emb and
+            # concat hidden and enc_out to find scores, then append emb and
             # context vec and pass to lstm
             # emb = emb.expand(emb.size(0), enc_out.size(1), -1)
             h = hidden[0].view(self.layers, 2 if self.bidirectional else 1,
@@ -216,35 +216,6 @@ class GeneratorModel(nn.Module):
         elif mode == tgt2src:
             self.enc_sos = word2idx[SOS_TGT]
             self.dec_sos = word2idx[SOS_SRC]
-
-
-# class LatentClassifier(nn.Module):
-#     def __init__(self, input_shape, output_shape, hidden_nodes):
-#         super(LatentClassifier, self).__init__()
-#         self.input_shape = input_shape
-#         self.output_shape = output_shape
-#         self.hidden_nodes = hidden_nodes
-
-#         self.linear1 = nn.Linear(input_shape, hidden_nodes)
-#         self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes/4))
-#         self.linear3 = nn.Linear(int(hidden_nodes/4), output_shape)
-#         self.lrelu = nn.LeakyReLU(0.2)
-#         self.sigmoid = nn.Sigmoid()
-#         self.softmax = nn.Softmax(dim=1)
-
-#     def forward(self, input):
-#         x = self.linear1(input)  # [bs, 21, hidden_nodes]
-#         # print('clf1', x.shape)
-#         x = self.lrelu(self.linear2(x))  # [bs, 21, hidden_nodes/4]
-#         # print('clf2', x.shape)
-#         x = self.sigmoid(self.linear3(x))  # [bs, 21, 1]
-#         # print('clf3', x.shape)
-#         x = x.squeeze()
-#         x = x.prod(dim=1)
-#         # print('clf4', x.shape)
-#         x = self.sigmoid(x)
-#         # print('clf5', x.shape)
-#         return x.squeeze()  # [batch_size]
 
 
 class LatentClassifier(nn.Module):

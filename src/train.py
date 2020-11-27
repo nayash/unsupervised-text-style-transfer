@@ -757,11 +757,14 @@ resume_history = run_path / 'state.pt'
 resume_epoch = 0
 if is_resume and resume_history.exists():
     state = torch.load(resume_history, map_location='cpu')
-
     resume_epoch = state['epoch']
     generator.load_state_dict(state['modelG'])
     optimG.load_state_dict(state['optim_stateG'])
     lr_sched_G.load_state_dict(state['lr_sched_g'])
+    # logger.append_log('temporary optimG lr change!!!!!!!!!!!!!!!!!!!!!!!')
+    # for zz, g in enumerate(optimG.param_groups):
+    #     g['lr'] = config_dict['gen_lr']
+    #     print('lr', optimG.param_groups[zz]['lr'])
     if not skip_disc:
         lat_clf.load_state_dict(state['modelD'])
         optimD.load_state_dict(state['optim_stateD'])
@@ -771,10 +774,10 @@ if is_resume and resume_history.exists():
     generator.to(device)
     if not skip_disc:
         lat_clf.to(device)
-    lr_reduce_patience = 10
-    early_stop_patience = 50
-    logger.append_log('lr_reduce_patience and early_stop_patience changed',
-                      lr_reduce_patience, early_stop_patience)
+    # lr_reduce_patience = 10
+    # early_stop_patience = 50
+    # logger.append_log('lr_reduce_patience and early_stop_patience changed',
+    #                   lr_reduce_patience, early_stop_patience)
     logger.append_log('loaded previous saved model')
 
 if is_resume and not resume_history.exists():
@@ -961,7 +964,6 @@ for epoch in range(resume_epoch, epochs):
                             enc_out_tgt1.max()).item():
                         logger.append_log('check2', 'nan found')
 
-                    # for d_ in range(1):
                     optimD.zero_grad()
                     # with autocast():
                     if np.random.uniform(0, 1) < disc_noise_prob:
@@ -1069,10 +1071,12 @@ for epoch in range(resume_epoch, epochs):
                         logger.append_log('samples:\n', _, '\n')
                     with open(run_path / 'samples.txt', 'a') as file:
                         file.write(_)
+
+                    # if config_dict['gen_lr_sched'] != 'cyclic':
+                    #     lr_sched_G.step(val_loss)
                 except Exception as e:
                     logger.append_log('log failed1', e)
                     traceback.print_exc()
-
             # end of iter loop
         # end of profiler
 
@@ -1099,8 +1103,7 @@ for epoch in range(resume_epoch, epochs):
              'lr_sched_d': lr_sched_D.state_dict() if not skip_disc else {},
              'last_train_loss': train_lossesG[-1],
              'last_val_loss': val_loss,
-             'iter': 0
-             }
+             'iter': 0}
 
     if val_loss < prev_best_loss:
         prev_best_loss = val_loss
