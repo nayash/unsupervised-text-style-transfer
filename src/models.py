@@ -16,7 +16,8 @@ from constants import *
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, word_emb_tensor, device, batch_first=True,
+    def __init__(self, input_size_src, input_size_tgt, hidden_size,
+                 word_emb_src, word_emb_tgt, device, batch_first=True,
                  layers=1, bidirectional=False, dropout=0.0, word_do=0.0):
         super(Encoder, self).__init__()
 
@@ -25,17 +26,22 @@ class Encoder(nn.Module):
         self.layers = layers
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
-        self.input_size = input_size  # size of input vocab
-        self.emb = nn.Embedding(input_size, hidden_size)
+        self.emb_src = nn.Embedding(input_size_src, hidden_size)
+        self.emb_tgt = nn.Embedding(input_size_tgt, hidden_size)
+        self.emb_src.load_state_dict({'weight': word_emb_src})
+        self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.word_do = nn.Dropout2d(word_do)
-        self.emb.load_state_dict({'weight': word_emb_tensor})
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
                             dropout=dropout)  # input_size = len of sequence
         # self.apply(self.weights_init)
 
     def forward(self, input, hidden):
-        emb = self.emb(input)  # (batch, input_size, hidden_size)
+        assert self.mode
+        if self.mode == src2tgt or self.mode == src2src:
+            emb = self.emb_src(input)  # (batch, input_size, hidden_size)
+        else:
+            emb = self.emb_tgt(input)
         emb = self.word_do(emb)  # randomly sets word embs to 0
         if not self.batch_first:
             emb = emb.permute(1, 0, 2)
@@ -62,24 +68,31 @@ class Encoder(nn.Module):
         else:
             init.xavier_uniform_(m.weight.data)
 
+    def set_mode(self, mode):
+        self.mode = mode
+
 
 class Decoder(nn.Module):
-    def __init__(self, output_size, hidden_size, word_emb_tensor, device, batch_first=True,
-                 layers=1, bidirectional=False, dropout=0.0, use_attn=False,
-                 emb_do=0.0):
+    def __init__(self, output_size_src, output_size_tgt, hidden_size,
+                 word_emb_src, word_emb_tgt, device, batch_first=True, layers=1,
+                 bidirectional=False, dropout=0.0, use_attn=False, emb_do=0.0):
         super(Decoder, self).__init__()
 
         self.device = device
         self.use_attn = use_attn
         self.batch_first = batch_first
-        self.output_size = output_size  # output vocab
         self.bidirectional = bidirectional
         self.layers = layers
         self.hidden_size = hidden_size
-        self.emb = nn.Embedding(output_size, hidden_size)
+        self.out_size_src = output_size_src
+        self.out_size_tgt = output_size_tgt
+        self.emb_src = nn.Embedding(output_size_src, hidden_size)
+        self.emb_src.load_state_dict({'weight': word_emb_src})
+        self.emb_tgt = nn.Embedding(output_size_tgt, hidden_size)
+        self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.emb_do = nn.Dropout(emb_do)
-        self.emb.load_state_dict({'weight': word_emb_tensor})
-        self.lstm = nn.LSTM(self.lstm_in_size(), hidden_size, batch_first=batch_first,
+        self.lstm = nn.LSTM(self.lstm_in_size(), hidden_size,
+                            batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
                             dropout=dropout)  # input_size = len of sequence
         attn_in_size = self.attn_in_size()
@@ -90,15 +103,21 @@ class Decoder(nn.Module):
                                       nn.Tanh())
             self.softmax = nn.Softmax(dim=1)
         self.linear = nn.Linear(
-            (1 if not self.bidirectional else 2) * hidden_size, output_size)
-        self.lrelu = nn.LeakyReLU(0.2)
+            (1 if not self.bidirectional else 2) * hidden_size,
+            max(output_size_src, output_size_tgt))
+        # self.lrelu = nn.LeakyReLU(0.2)
         self.log_softmax = nn.LogSoftmax(dim=2)
 
     def forward(self, input, hidden, enc_out):
         # input => [batch_size, 1], hidden[0]/[1] => [dir, bs, emb_dim]
         # enc_out => [bs, max_len, emb_dim*dir]
-
-        emb = self.emb(input)  # (batch, seq_len, emb_dim)
+        assert self.mode
+        if self.mode == src2tgt or self.mode == tgt2tgt:
+            emb = self.emb_tgt(input)  # (batch, seq_len, emb_dim)
+            out_dim = self.out_size_tgt
+        else:
+            emb = self.emb_src(input)
+            out_dim = self.out_size_src
         emb = self.emb_do(emb)
         if not self.batch_first:
             emb = emb.permute(1, 0, 2)
@@ -108,19 +127,25 @@ class Decoder(nn.Module):
             # context vec and pass to lstm
             # emb = emb.expand(emb.size(0), enc_out.size(1), -1)
             h = hidden[0].view(self.layers, 2 if self.bidirectional else 1,
-                               input.size(0), self.hidden_size)[-1]  # [dir, bs, dim]
-            h = h.permute(1, 0, 2).reshape(input.size(0), 1, -1)  # [bs, 1, dir*emb_dim]
-            h = h.expand(h.size(0), enc_out.size(1), -1)  # [bs, max_len, dir*emb_dim]
-            attn_in = torch.cat((enc_out, h), -1)  # [bs, max_len, 2*dir*emb_dim]
+                               input.size(0), self.hidden_size)[
+                -1]  # [dir, bs, dim]
+            h = h.permute(1, 0, 2).reshape(input.size(0), 1,
+                                           -1)  # [bs, 1, dir*emb_dim]
+            h = h.expand(h.size(0), enc_out.size(1),
+                         -1)  # [bs, max_len, dir*emb_dim]
+            attn_in = torch.cat((enc_out, h),
+                                -1)  # [bs, max_len, 2*dir*emb_dim]
             attn_wts = self.softmax(self.attn(attn_in))  # [bs, max_len, 1]
-            lstm_in = torch.sum(enc_out*attn_wts, dim=1).view(enc_out.size(0), 1, -1)  # [bs, 1, dir*emb]
+            lstm_in = torch.sum(enc_out * attn_wts, dim=1).\
+                view(enc_out.size(0), 1, -1)  # [bs, 1, dir*emb]
             lstm_in = torch.cat((lstm_in, emb), -1)
         else:
             lstm_in = emb
 
         o, h = self.lstm(lstm_in, hidden)
         x = self.log_softmax(self.linear(o))
-        return x, h
+        # print(input.shape, x.shape)
+        return x[:, :, out_dim], h
 
     def init_hidden(self, batch_size):
         return (torch.zeros(self.layers * (1 if not self.bidirectional else 2),
@@ -143,30 +168,35 @@ class Decoder(nn.Module):
     def attn_in_size(self):
         res = self.hidden_size
         if self.use_attn:
-            res = res*2*(2 if self.bidirectional else 1)
+            res = res * 2 * (2 if self.bidirectional else 1)
         return res
 
     def lstm_in_size(self):
         res = self.hidden_size
         if self.use_attn:
-            res = res*(int(self.bidirectional)+1)+self.hidden_size
+            res = res * (int(self.bidirectional) + 1) + self.hidden_size
         return res
+
+    def set_mode(self, mode):
+        self.mode = mode
 
 
 class GeneratorModel(nn.Module):
-    def __init__(self, input_vocab, hidden_size, batch_size, word_emb_tensor,
-                 device, batch_first=True, layers=1, bidirectional=False,
-                 lstm_do=0.0, use_attn=False, emb_do=0, word_do=0.0):
+    def __init__(self, input_vocab_src, input_vocab_tgt, hidden_size,
+                 batch_size, word_emb_src, word_emb_tgt, device,
+                 batch_first=True, layers=1, bidirectional=False, lstm_do=0.0,
+                 use_attn=False, emb_do=0, word_do=0.0):
         super(GeneratorModel, self).__init__()
         self.device = device
         self.batch_size = batch_size
         self.batch_first = batch_first
-        self.encoder = Encoder(input_vocab, hidden_size, word_emb_tensor,
-                               device, batch_first=batch_first,
+        self.encoder = Encoder(input_vocab_src, input_vocab_tgt, hidden_size,
+                               word_emb_src, word_emb_tgt, device,
+                               batch_first=batch_first,
                                bidirectional=bidirectional, layers=layers,
                                dropout=lstm_do, word_do=word_do)
-        self.decoder = Decoder(input_vocab, hidden_size, word_emb_tensor,
-                               device, layers=layers,
+        self.decoder = Decoder(input_vocab_src, input_vocab_tgt,  hidden_size,
+                               word_emb_src, word_emb_tgt, device, layers=layers,
                                bidirectional=bidirectional,
                                batch_first=batch_first, dropout=lstm_do,
                                use_attn=use_attn, emb_do=emb_do)
@@ -186,7 +216,8 @@ class GeneratorModel(nn.Module):
         decoder_hidden = h
 
         for i in range(enc_out.size(1)):
-            out, decoder_hidden = self.decoder(decoder_input, decoder_hidden, enc_out)  # out=> [1, 1, vocab]
+            out, decoder_hidden = self.decoder(decoder_input, decoder_hidden,
+                                               enc_out)  # out=> [1, 1, vocab]
             pred, idx = out.topk(1)
             decoder_input = idx.view(idx.size(0), 1)
             decoder_out.append(idx.squeeze())
@@ -203,19 +234,22 @@ class GeneratorModel(nn.Module):
     def get_batch_index(self, batch_first):
         return 0 if batch_first else 1
 
-    def set_mode(self, mode, word2idx):
+    def set_mode(self, mode, word2idx_src, word2idx_tgt):
+        self.mode = mode
+        self.encoder.set_mode(mode)
+        self.decoder.set_mode(mode)
         if mode == src2src:
-            self.enc_sos = word2idx[SOS_SRC]
-            self.dec_sos = word2idx[SOS_SRC]
+            self.enc_sos = word2idx_src[SOS_SRC]
+            self.dec_sos = word2idx_src[SOS_SRC]
         elif mode == tgt2tgt:
-            self.enc_sos = word2idx[SOS_TGT]
-            self.dec_sos = word2idx[SOS_TGT]
+            self.enc_sos = word2idx_tgt[SOS_TGT]
+            self.dec_sos = word2idx_tgt[SOS_TGT]
         elif mode == src2tgt:
-            self.enc_sos = word2idx[SOS_SRC]
-            self.dec_sos = word2idx[SOS_TGT]
+            self.enc_sos = word2idx_src[SOS_SRC]
+            self.dec_sos = word2idx_tgt[SOS_TGT]
         elif mode == tgt2src:
-            self.enc_sos = word2idx[SOS_TGT]
-            self.dec_sos = word2idx[SOS_SRC]
+            self.enc_sos = word2idx_tgt[SOS_TGT]
+            self.dec_sos = word2idx_src[SOS_SRC]
 
 
 class LatentClassifier(nn.Module):
@@ -318,12 +352,15 @@ class Attention(nn.Module):
 
         # (batch_size, output_len, dimensions) * (batch_size, query_len, dimensions) ->
         # (batch_size, output_len, query_len)
-        attention_scores = torch.bmm(query, context.transpose(1, 2).contiguous())
+        attention_scores = torch.bmm(query,
+                                     context.transpose(1, 2).contiguous())
 
         # Compute weights across every context sequence
-        attention_scores = attention_scores.view(batch_size * output_len, query_len)
+        attention_scores = attention_scores.view(batch_size * output_len,
+                                                 query_len)
         attention_weights = self.softmax(attention_scores)
-        attention_weights = attention_weights.view(batch_size, output_len, query_len)
+        attention_weights = attention_weights.view(batch_size, output_len,
+                                                   query_len)
 
         # (batch_size, output_len, query_len) * (batch_size, query_len, dimensions) ->
         # (batch_size, output_len, dimensions)
@@ -335,7 +372,8 @@ class Attention(nn.Module):
 
         # Apply linear_out on every 2nd dimension of concat
         # output -> (batch_size, output_len, dimensions)
-        output = self.linear_out(combined).view(batch_size, output_len, dimensions)
+        output = self.linear_out(combined).view(batch_size, output_len,
+                                                dimensions)
         output = self.tanh(output)
 
         return output, attention_weights

@@ -8,14 +8,19 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 
+import sys
+sys.path.append('../src')
 import re
 import calendar
 import unicodedata
+from collections import Counter
+
 import numpy as np
 import torch
 import time
 from nltk.tokenize import sent_tokenize, word_tokenize
 from constants import *
+import multiprocessing as mp
 
 
 def unicodeToAscii(s):
@@ -105,38 +110,38 @@ def get_vocab_dicts(words):
     return word2idx, idx2word
 
 
-def vocab_from_pretrained_emb(emb_path, words, start=0, end=0,
-                              batch_num=0, batch_size=0, extra_tokens=[]):
+def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
+                              batch_size=0, emb_dim=-1):
     word2idx = {}
     idx2word = {}
     word_emb = []
     offset = (batch_size*batch_num)
-    with open(emb_path) as file:
-        for i, line in enumerate(file):
-            split = line.split()
-            word = split[0]
-            if word not in words:
-                continue
-            emb = split[1:]
-            idx = len(word_emb)+offset
+    if not emb_path == 'random':
+        with open(emb_path) as file:
+            for i, line in enumerate(file):
+                split = line.split()
+                word = split[0]
+                if word not in words:
+                    continue
+                emb = split[1:]
+                idx = len(word_emb)+offset
+                word2idx[word] = idx
+                idx2word[idx] = word
+                word_emb.append([float(i) for i in emb])
+    else:
+        assert emb_dim > 0, "if embedding vectors file is not provided, " \
+                            "embedding dimension has to be passed explicitly."
+        for word in words:
+            idx = len(word_emb) + offset
             word2idx[word] = idx
             idx2word[idx] = word
-            word_emb.append([float(i) for i in emb])
-
-    # if batch_size == 0:
-    #     for word in extra_tokens:
-    #         word2idx[word] = len(word_emb)
-    #         if len(word_emb) in idx2word:
-    #             raise Exception("word index already exists", len(word_emb),
-    #                             idx2word[len(word_emb)], word)
-    #         idx2word[len(word_emb)] = word
-    #         word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+            word_emb.append(np.random.randn(emb_dim))
 
     return word2idx, idx2word, word_emb
 
 
-def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens=[],
-                                       workers=3):
+def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3,
+                                       emb_dim=-1):
     word2idx = {}
     idx2word = {}
     word_emb = []
@@ -147,7 +152,8 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens=[],
         s = i*offset
         e = s+offset-1
         results.append(pool.apply_async(vocab_from_pretrained_emb,
-                                   args=[emb_path, words[s:e+1], s, e, i, offset]))
+                                   args=[emb_path, words[s:e+1], s, e, i,
+                                         offset, emb_dim]))
     [res.wait() for res in results]
     prev = None
     # print('words', len(words))
@@ -170,7 +176,6 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens=[],
 
     # now add words from corpus which are missing in Glove embeddings
     diff = list(set(words).difference(word2idx.keys()))
-    # print('words not found in Glove', len(diff), len(word2idx), len(idx2word), len(word_emb))
     for word in diff:
         word2idx[word] = len(word_emb)
         if len(word_emb) in idx2word:
@@ -220,7 +225,7 @@ def len_word_tokenize(sent):
 def clean_text_wrapper(text, clean_text_func, max_len):
     # print(text, 'func=',clean_text_func, 'max_len',max_len)
     sent = clean_text_func(text)
-    is_short = is_sent_shorter(sent, max_len)
+    is_short = is_sent_shorter(sent, max_len) if max_len > 0 else True
     return sent if is_short else None
 
 
@@ -245,6 +250,14 @@ def parallelize(func, collection, pool, parts, **kwargs):
         output.extend(res.get())
 
     return output
+
+
+def tensor_to_sentence(sent_tensor, idx2word):
+    sent_tensor = sent_tensor.squeeze().cpu().numpy()
+    sent = []
+    for idx in sent_tensor:
+        sent.append(idx2word[idx])
+    return ' '.join(sent)
 
 
 def sent_to_tensor(sentence, **kwargs):
@@ -279,3 +292,16 @@ def sent_to_tensor(sentence, **kwargs):
     temp.append(word2idx['EOS'])
     temp.extend([word2idx['PAD']] * (max_len - len(temp)))
     return torch.tensor(temp)
+
+
+def vocab_from_sents(sents, pool, extra_tokens, GLOVE_PATH=None, emb_dim=-1):
+    words = pool.map(word_tokenize, sents)
+    words = [w for l in words for w in l]
+    count_dict = Counter(words)
+    words = [w for w in count_dict.keys() if count_dict[w] > 2]
+    words = list(set(words))
+    words.extend(extra_tokens)
+    word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
+        GLOVE_PATH, words, pool, mp.cpu_count(), emb_dim=emb_dim)
+
+    return word2idx, idx2word, word_emb

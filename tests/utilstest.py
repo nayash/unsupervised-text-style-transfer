@@ -8,10 +8,10 @@
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 
-import unittest
-import pickle
 import sys
 sys.path.append('../src')
+import unittest
+import pickle
 from src.utils import *
 import multiprocessing as mp
 import numpy as np
@@ -20,7 +20,7 @@ from src.constants import *
 
 class UtilsTest(unittest.TestCase):
     def setUp(self) -> None:
-        with open('/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/data_cp8.pk', 'rb') as f:
+        with open('/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/data_cp8_adam_run.pk', 'rb') as f:
             checkpoint = pickle.load(f)
         self.words = checkpoint['words']
         self.emb_path = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/glove.6B.200d.txt'
@@ -30,7 +30,7 @@ class UtilsTest(unittest.TestCase):
     def test_vocab_from_pretrained_emb_parallel(self):
         print('check', SOS_SRC in self.words, SOS_TGT in self.words)
         word2idx, idx2word, emb = vocab_from_pretrained_emb_parallel(self.emb_path, self.words,
-                                           self.pool, self.extra_tokens, mp.cpu_count())
+                                           self.pool, mp.cpu_count())
         # word2idx, idx2word, emb = vocab_from_pretrained_emb(
         #     self.emb_path, self.words, extra_tokens=self.extra_tokens)
         print('lengths', len(word2idx), len(idx2word), len(emb))

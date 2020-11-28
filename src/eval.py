@@ -28,16 +28,18 @@ arg_parser.add_argument('--cleanfunc', default='clean_text_yelp',
                         help='text cleaning function. use the same function '
                              'used for treating training data. for e.g. see '
                              '"clean_text" func in utils.py. Default = clean_text_yelp')
-arg_parser.add_argument('--cpfile', default='data_cp8.pt',
+arg_parser.add_argument('--cpfile', default='data_cp8.pk',
                         help='checkpoint file path which holds training vocabulary, '
-                             'embeddings etc. default=data_cp8.pt')
+                             'embeddings etc. default=data_cp8.pk')
 arg_parser.add_argument('--evaltype', default='forward',
                         help='translate from source to target if value = "forward",'
                              'else reverse.')
+arg_parser.add_argument('--device', default='cpu')
 
 args = arg_parser.parse_args()
 eval_file_path = os.path.abspath(args.f)
 run_id = args.expid
+device = 'cuda:0' if torch.cuda.is_available() and args.device == 'cuda' else 'cpu'
 clean_text_func = locals()[args.cleanfunc]
 run_path = OUTPUT_PATH / 'runs' / run_id
 data_cp_path = OUTPUT_PATH / args.cpfile
@@ -51,7 +53,6 @@ data_cp = pickle.load(open(str(data_cp_path), 'rb'))
 # words = data_cp['words']
 max_len = data_cp['max_sent_len']
 max_len += 3  # extra tokens for SOSOpType, EOS, PAD
-print('max_len with extra_tokens=', max_len)
 word2idx = data_cp['word2idx']
 idx2word = data_cp['idx2word']
 word_emb = data_cp['word_emb']
@@ -94,7 +95,6 @@ generator = GeneratorModel(len(word2idx), config_dict['hidden_dim'],
 
 state = torch.load(resume_history, map_location='cpu')
 generator.load_state_dict(state['modelG'])
-device = next(generator.parameters()).device
 generator.to(device)
 tensors.to(device)
 
@@ -107,19 +107,19 @@ def tensor_to_sentence(sent_tensor, idx2word=idx2word):
     return ' '.join(sent)
 
 
-def eval_model_tensor(generator, x, mode, word2idx):
+def eval_model_tensor(generator, x, mode, word2idx, batch_size=100):
     x = x.to(device)
     generator.set_mode(mode, word2idx)
     input = x if len(x.size()) > 1 \
         else x.view(1, -1)
-    gen_out, gen_raw, enc_out = generator(input)
-    # loss = 0
-    # for k in range(gen_raw.size(0)):
-    #     loss += loss_ce(gen_raw[k], y[k])
-    sents = [tensor_to_sentence(row)for row in gen_out]
+    sents = []
+    batches = (len(x)-1)//batch_size + 1
+    for i in range(batches):
+        gen_out, gen_raw, enc_out = generator(input[i*batch_size: (i+1)*batch_size])
+        sents.extend([tensor_to_sentence(row)for row in gen_out])
     return sents
 
 
 result = eval_model_tensor(generator, tensors, mode, word2idx)
 for i, line in enumerate(lines_):
-    print(line, '-->', result[i])
+    print(line.strip(), '-->', result[i])
