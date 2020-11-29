@@ -1,4 +1,4 @@
-from models import *
+from models_generic import *
 import os
 import pickle
 from pathlib import Path

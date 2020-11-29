@@ -278,7 +278,7 @@ data_cp = pickle.load(open(str(data_cp_path), 'rb'))
 config_dict = data_cp['config_dict']
 tgt_sents = data_cp['tgt']
 src_sents = data_cp['src']
-words = data_cp['words']
+# words = data_cp['words']
 max_len = data_cp['max_sent_len']
 max_len += 3  # extra tokens for SOSOpType, EOS, PAD
 print('max_len with extra_tokens=', max_len)
@@ -835,9 +835,10 @@ for epoch in range(resume_epoch, epochs):
                 generator.set_mode(src2src, word2idx)
                 _, gen_raw, _ = generator(in_src)
                 loss_auto_src = 0
+                # torch.Size([100, 11, 41485]) torch.Size([100, 11])
                 for k in range(gen_raw.size(0)):
                     loss_auto_src += loss_ce(gen_raw[k], org_src[k])
-
+                sys.exit()
                 ## 1.2 tgt to tgt
                 generator.set_mode(tgt2tgt, word2idx)
                 _, gen_raw1, _ = generator(in_tgt)

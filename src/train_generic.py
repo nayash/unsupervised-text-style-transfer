@@ -10,7 +10,7 @@
 
 import sys
 sys.path.append('../src')
-from models import *
+from models_generic import *
 import os
 import pickle
 from pathlib import Path
@@ -126,6 +126,11 @@ arg_parser.add_argument('--test', default=False, action='store_true',
 arg_parser.add_argument('--device', default='cuda',
                         help='training/inference to be done on this device.'
                              ' supported values are "cuda" (default) or "cpu"')
+arg_parser.add_argument('--epochs', default=-1,
+                        help='number of epochs to be trained for. This param'
+                             'is already passed in config.json file. You can '
+                             'use this argument to overwrite the config param'
+                             'while resuming the training with more epochs')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
@@ -600,9 +605,10 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
 
     # log some samples from last batch
     samples = '------------val_samples--------------\n'
-    for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False),
+    for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False,
+                           extras={'idx2word': idx2word_src}),
                  row_apply(gen_out[::len(gen_out) // 10], tensor_to_sentence,
-                           False)):
+                           False, extras={'idx2word': idx2word_tgt})):
         samples += _[0] + ' --> ' + _[1] + '\n'
 
     logger.append_log(samples)
@@ -610,7 +616,7 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
     return loss / len(dl_src)
 
 
-epochs = config_dict['epoch']
+epochs = args.epochs if args.epochs != -1 else config_dict['epoch']
 train_lossesG = []
 train_lossesD = []
 start_time = time.time()
@@ -701,6 +707,7 @@ for epoch in range(resume_epoch, epochs):
                 generator.set_mode(src2src, word2idx_src, word2idx_tgt)
                 _, gen_raw, _ = generator(in_src)
                 loss_auto_src = 0
+                # torch.Size([120, 22]) torch.Size([120, 22])
                 for k in range(gen_raw.size(0)):
                     loss_auto_src += loss_ce(gen_raw[k], org_src[k])
 
@@ -788,16 +795,18 @@ for epoch in range(resume_epoch, epochs):
                 weight_clip(generator, config_dict['gen_wt_clip'])
 
             epoch_loss_G.append(lossG.item())
-            samples.append((row_apply(org_src[:5], tensor_to_sentence, False),
+            samples.append((row_apply(org_src[:5], tensor_to_sentence, False,
+                                      extras={'idx2word': idx2word_src}),
                             row_apply(gen_out_src[:5], tensor_to_sentence,
-                                      False),
+                                      False, extras={'idx2word': idx2word_tgt}),
                             row_apply(gen_bt_src2tgt[:5], tensor_to_sentence,
-                                      False),
-                            row_apply(org_tgt[:5], tensor_to_sentence, False),
+                                      False, extras={'idx2word': idx2word_src}),
+                            row_apply(org_tgt[:5], tensor_to_sentence, False,
+                                      extras={'idx2word': idx2word_tgt}),
                             row_apply(gen_out_tgt[:5], tensor_to_sentence,
-                                      False),
+                                      False, extras={'idx2word': idx2word_src}),
                             row_apply(gen_bt_tgt2src[:5], tensor_to_sentence,
-                                      False)))
+                                      False, extras={'idx2word': idx2word_tgt})))
 
             # 4. train discriminator to identify encoder outputs belonging to
             # input type src and tgt
