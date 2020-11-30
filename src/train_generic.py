@@ -126,11 +126,15 @@ arg_parser.add_argument('--test', default=False, action='store_true',
 arg_parser.add_argument('--device', default='cuda',
                         help='training/inference to be done on this device.'
                              ' supported values are "cuda" (default) or "cpu"')
-arg_parser.add_argument('--epochs', default=-1,
+arg_parser.add_argument('--epochs', default=-1, type=int,
                         help='number of epochs to be trained for. This param'
                              'is already passed in config.json file. You can '
                              'use this argument to overwrite the config param'
                              'while resuming the training with more epochs')
+arg_parser.add_argument('--genlr', default=-1, type=float,
+                        help='generator learning rate, which will overwrite'
+                             'config.json file value. used only while resuming'
+                             'training of a model from saved checkpoints.')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
@@ -165,7 +169,6 @@ pool = mp.Pool(mp.cpu_count())
 with open(config_path, 'r') as file:
     _ = file.read()
     config_dict = json.loads(_)
-logger.append_log('config: ', config_dict)
 
 max_len = config_dict["max_sentence_len"]
 data_cp_path = OUTPUT_PATH / ('data_cp' + str(max_len) + '.pk')
@@ -272,13 +275,20 @@ word_emb_src = data_cp['word_emb_src']
 word2idx_tgt = data_cp['word2idx_tgt']
 idx2word_tgt = data_cp['idx2word_tgt']
 word_emb_tgt = data_cp['word_emb_tgt']
-config_dict = data_cp['config_dict']
+config_dict_prev = data_cp['config_dict']
+
+assert config_dict == config_dict_prev, 'the configuration with which model was ' \
+                                        'trained and current configuration are ' \
+                                        'different. please use the same config ' \
+                                        'to avoid bugs. previous config='+str(config_dict_prev)+\
+                                        ', \ncurrent config='+str(config_dict)
 
 word_dropout = config_dict['word_dropout']
 noisy_input = bool(config_dict['noisy_input'])
 noisy_cd_input = bool(config_dict['noisy_cd_input'])
 # shuffle_prob = config_dict['shuffle_prob']  # not used
 
+logger.append_log('config_dic:', config_dict)
 logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
@@ -640,8 +650,11 @@ if is_resume and resume_history.exists():
     generator.load_state_dict(state['modelG'])
     optimG.load_state_dict(state['optim_stateG'])
     lr_sched_G.load_state_dict(state['lr_sched_g'])
-    # for zz, g in enumerate(optimG.param_groups):
-    #     g['lr'] = config_dict['gen_lr']
+    new_lr = args.genlr
+    if args.genlr != -1:
+        for zz, g in enumerate(optimG.param_groups):
+            g['lr'] = new_lr
+        logger.append_log('overwritten generator LR to', new_lr)
     if not skip_disc:
         lat_clf.load_state_dict(state['modelD'])
         optimD.load_state_dict(state['optim_stateD'])
