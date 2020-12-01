@@ -277,11 +277,11 @@ idx2word_tgt = data_cp['idx2word_tgt']
 word_emb_tgt = data_cp['word_emb_tgt']
 config_dict_prev = data_cp['config_dict']
 
-assert config_dict == config_dict_prev, 'the configuration with which model was ' \
-                                        'trained and current configuration are ' \
-                                        'different. please use the same config ' \
-                                        'to avoid bugs. previous config='+str(config_dict_prev)+\
-                                        ', \ncurrent config='+str(config_dict)
+# assert config_dict == config_dict_prev, 'the configuration with which model was ' \
+#                                         'trained and current configuration are ' \
+#                                         'different. please use the same config ' \
+#                                         'to avoid bugs. previous config='+str(config_dict_prev)+\
+#                                         ', \ncurrent config='+str(config_dict)
 
 word_dropout = config_dict['word_dropout']
 noisy_input = bool(config_dict['noisy_input'])
@@ -625,6 +625,11 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
     generator.train()
     return loss / len(dl_src)
 
+
+logger.append_log("***************** Generator *********************")
+logger.append_log(str(generator))
+logger.append_log("***************** Discriminator *********************")
+logger.append_log(str(lat_clf))
 
 epochs = args.epochs if args.epochs != -1 else config_dict['epoch']
 train_lossesG = []

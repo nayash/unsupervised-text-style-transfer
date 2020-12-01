@@ -97,14 +97,13 @@ class Decoder(nn.Module):
                             dropout=dropout)  # input_size = len of sequence
         attn_in_size = self.attn_in_size()
         if use_attn:
-            self.attn = nn.Sequential(nn.Linear(attn_in_size, 1),
-                                      # nn.LeakyReLU(0.2),
-                                      # nn.Linear(int(attn_in_size/4), 1),
-                                      nn.Tanh())
+            self.attn_param = nn.Parameter(torch.randn(hidden_size))
+            self.fc1 = nn.Linear((1+int(bidirectional)) * hidden_size, hidden_size)
+            self.fc2 = nn.Linear((1+int(bidirectional)) * hidden_size, hidden_size)
+            self.tanh = nn.Tanh()
             self.softmax = nn.Softmax(dim=1)
-        self.linear = nn.Linear(
-            (1 if not self.bidirectional else 2) * hidden_size,
-            max(output_size_src, output_size_tgt))
+        self.linear = nn.Linear((1+int(bidirectional)) * hidden_size,
+                                max(output_size_src, output_size_tgt))
         # self.lrelu = nn.LeakyReLU(0.2)
         self.log_softmax = nn.LogSoftmax(dim=2)
 
@@ -123,22 +122,16 @@ class Decoder(nn.Module):
             emb = emb.permute(1, 0, 2)
 
         if self.use_attn:
-            # concat hidden and enc_out to find scores, then append emb and
-            # context vec and pass to lstm
-            # emb = emb.expand(emb.size(0), enc_out.size(1), -1)
-            h = hidden[0].view(self.layers, 2 if self.bidirectional else 1,
-                               input.size(0), self.hidden_size)[
-                -1]  # [dir, bs, dim]
-            h = h.permute(1, 0, 2).reshape(input.size(0), 1,
-                                           -1)  # [bs, 1, dir*emb_dim]
-            h = h.expand(h.size(0), enc_out.size(1),
-                         -1)  # [bs, max_len, dir*emb_dim]
-            attn_in = torch.cat((enc_out, h),
-                                -1)  # [bs, max_len, 2*dir*emb_dim]
-            attn_wts = self.softmax(self.attn(attn_in))  # [bs, max_len, 1]
+            # Bahdanau's attention
+            h = hidden[0].view(self.layers, (1+int(self.bidirectional)),
+                               input.size(0), self.hidden_size)[-1]  # [dir, bs, dim]
+            h = h.permute(1, 0, 2).reshape(input.size(0), 1, -1)  # [bs, 1, dir*emb_dim]
+            attn_wts = self.softmax(self.tanh(self.fc1(h) + self.fc2(enc_out)) * self.attn_param).\
+                sum(-1).unsqueeze(-1)  # [bs, max_len, 1]
+            # attn_wts = self.softmax(e)  # [bs, max_len, 1]
             lstm_in = torch.sum(enc_out * attn_wts, dim=1).\
                 view(enc_out.size(0), 1, -1)  # [bs, 1, dir*emb]
-            lstm_in = torch.cat((lstm_in, emb), -1)
+            lstm_in = torch.cat((lstm_in, emb), -1)  # [bs, 1, dir*emb+emb]
         else:
             lstm_in = emb
 
