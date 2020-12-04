@@ -20,6 +20,7 @@ import torch
 import time
 from nltk.tokenize import sent_tokenize, word_tokenize
 from constants import *
+# from src.constants import *
 import multiprocessing as mp
 import random
 
@@ -56,20 +57,22 @@ def clean_text(text):
 def clean_text_yelp(text):
     # text = ''.join(text)
     text = text.lower()
+    text = text.replace(r'\/', ' ')  # e.g. staff/owner
+    text = re.sub(r'(.)\1{2,}', r'\1', text)  # ohhhhkay => okay
     text = ' '.join(word_tokenize(text))
     text = text.replace('_num_', 'NUMBER')
     text = text.replace('can\'t', 'can not')
     text = text.replace(" n't", ' not')
     text = text.replace(" 's", ' is')
-    text = text.replace(" 've", ' have')
-    text = text.replace(" ve ", ' have')
-    text = text.replace(" 'd", ' would')
+    text = text.replace(" 've ", ' have ')
+    text = text.replace(" ve ", ' have ')
+    text = text.replace(" 'd ", ' would ')
     text = text.replace(" 'll ", " will ")
-    text = text.replace(" 'm", ' am')
+    text = text.replace(" 'm ", ' am ')
     text = text.replace(" m ", ' am ')
     text = text.replace("&", 'and')
     text = text.replace('\\n', ' ').replace("\\","")
-    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:]', ' ', text)
+    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:\/]', ' ', text)
     text = re.sub(r'[-—_,]', ' ', text)
     text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
     text = re.sub(r'[()]', '', text)
@@ -131,7 +134,7 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
                 idx2word[idx] = word
                 word_emb.append([float(i) for i in emb])
                 if len(emb) < emb_dim:
-                    word_emb.extend([random.uniform(0, 1) for d in
+                    word_emb[-1].extend([random.uniform(0, 1) for d in
                                      range(emb_dim-len(emb))])
     else:
         assert emb_dim > 0, "if embedding vectors file is not provided, " \
@@ -181,13 +184,14 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3,
 
     # now add words from corpus which are missing in Glove embeddings
     diff = list(set(words).difference(word2idx.keys()))
-    for word in diff:
-        word2idx[word] = len(word_emb)
-        if len(word_emb) in idx2word:
-            raise Exception("word index already exists", len(word_emb),
-                            idx2word[len(word_emb)], word)
-        idx2word[len(word_emb)] = word
-        word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+    print('diff', diff[:200], len(diff))
+    # for word in diff:
+    #     word2idx[word] = len(word_emb)
+    #     if len(word_emb) in idx2word:
+    #         raise Exception("word index already exists", len(word_emb),
+    #                         idx2word[len(word_emb)], word)
+    #     idx2word[len(word_emb)] = word
+    #     word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
     return word2idx, idx2word, word_emb
 
 
@@ -303,7 +307,7 @@ def vocab_from_sents(sents, pool, extra_tokens, GLOVE_PATH=None, emb_dim=-1):
     words = pool.map(word_tokenize, sents)
     words = [w for l in words for w in l]
     count_dict = Counter(words)
-    words = [w for w in count_dict.keys() if count_dict[w] > 2]
+    words = [w for w in count_dict.keys() if count_dict[w] > 3]
     words = list(set(words))
     words.extend(extra_tokens)
     word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(

@@ -253,7 +253,10 @@ if force_preproc or not data_cp_path.exists():
     logger.append_log('finding maximum sentence length...')
     _ = pool.map(len_word_tokenize, src_sents + tgt_sents) \
         if max_len == -1 else max_len
-    max_len = max(_)
+    try:
+        max_len = max(_)
+    except:
+        max_len = _
 
     data_cp['max_sent_len'] = max_len
     data_cp['word2idx_src'] = word2idx_src
@@ -282,7 +285,7 @@ word2idx_tgt = data_cp['word2idx_tgt']
 idx2word_tgt = data_cp['idx2word_tgt']
 word_emb_tgt = data_cp['word_emb_tgt']
 config_dict_prev = data_cp['config_dict']
-
+sys.exit()
 # assert config_dict == config_dict_prev, 'the configuration with which model was ' \
 #                                         'trained and current configuration are ' \
 #                                         'different. please use the same config ' \

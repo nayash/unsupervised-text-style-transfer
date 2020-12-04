@@ -17,10 +17,11 @@ import multiprocessing as mp
 import numpy as np
 from src.constants import *
 
+# python -m unittest tests.utilstest
 
 class UtilsTest(unittest.TestCase):
     def setUp(self) -> None:
-        with open('/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/data_cp8_adam_run.pk', 'rb') as f:
+        with open('/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/data_cp8.pk', 'rb') as f:
             checkpoint = pickle.load(f)
         self.words = checkpoint['words']
         self.emb_path = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/glove.6B.200d.txt'
