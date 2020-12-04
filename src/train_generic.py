@@ -61,7 +61,7 @@ model config: -c or --config  -> path to a file with model configuration
 in JSON format (python dict like). Check out default config dic for
 all supported keys.
 
-python train_generic.py --expid generic_test -s "./inputs/yelp-reviews-preprocessed/sentiment.0.all (copy).txt" -t "./inputs/yelp-reviews-preprocessed/sentiment.1.all (copy).txt"
+python train_generic.py --expid torchAttn_2lstm_smallData -s "./inputs/yelp-reviews-preprocessed/sentiment.0.all (copy).txt" -t "./inputs/yelp-reviews-preprocessed/sentiment.1.all (copy).txt" -f
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
 '''
@@ -173,6 +173,8 @@ with open(config_path, 'r') as file:
 max_len = config_dict["max_sentence_len"]
 data_cp_path = OUTPUT_PATH / ('data_cp' + str(max_len) + '.pk')
 tensors_path = OUTPUT_PATH / ('data_tensors_cp' + str(max_len) + '.pt')
+print('data_cp_path', data_cp_path)
+print('tensor_path', tensors_path)
 src_sents = []
 tgt_sents = []
 
@@ -233,7 +235,7 @@ if force_preproc or not data_cp_path.exists():
     else:
         src_sents = src_sents[:len(tgt_sents)]
 
-    logger.append_log('building vocabulary source language vocabulary ...')
+    logger.append_log('building vocabulary for source language ...')
     extra_tokens_src = [SOS_SRC, 'EOS', 'PAD', 'UNK']
     extra_tokens_tgt = [SOS_TGT, 'EOS', 'PAD', 'UNK']
 
@@ -241,15 +243,18 @@ if force_preproc or not data_cp_path.exists():
                                                                 extra_tokens_src,
                                                                 src_word_emb_path,
                                                                 emb_dim=config_dict['hidden_dim'])
+    logger.append_log('building vocabulary for target language ...')
     word2idx_tgt, idx2word_tgt, word_emb_tgt = vocab_from_sents(tgt_sents, pool,
                                                                 extra_tokens_tgt,
                                                                 tgt_word_emb_path,
                                                                 emb_dim=config_dict['hidden_dim'])
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents}
-    max_len = max([pool.apply(len_word_tokenize, args=(sent,)) for sent in
-                   src_sents + tgt_sents]) \
+    logger.append_log('finding maximum sentence length...')
+    _ = pool.map(len_word_tokenize, src_sents + tgt_sents) \
         if max_len == -1 else max_len
+    max_len = max(_)
+
     data_cp['max_sent_len'] = max_len
     data_cp['word2idx_src'] = word2idx_src
     data_cp['idx2word_src'] = idx2word_src
@@ -264,11 +269,12 @@ if force_preproc or not data_cp_path.exists():
 
 # load previous pre-processed vocabulary objects
 data_cp = pickle.load(open(str(data_cp_path), 'rb'))
+
 tgt_sents = data_cp['tgt']
 src_sents = data_cp['src']
 max_len = data_cp['max_sent_len']
 max_len += 3  # extra tokens for SOSOpType, EOS, PAD
-print('max_len with extra_tokens=', max_len)
+logger.append_log('max_len with extra_tokens=', max_len)
 word2idx_src = data_cp['word2idx_src']
 idx2word_src = data_cp['idx2word_src']
 word_emb_src = data_cp['word_emb_src']
@@ -491,15 +497,17 @@ skip_disc = not bool(config_dict['adv_training'])
 
 generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
                            config_dict['batch_size'], word_emb_src, word_emb_tgt,
-                           device, layers=config_dict['layers'],
-                           bidirectional=bool(config_dict['bidir']),
+                           device, layers_gen=config_dict['layers_gen'],
+                           layers_dec=config_dict['layers_dec'],
+                           bidir_gen=config_dict['bidir_gen'],
+                           bidir_dec=config_dict['bidir_dec'],
                            lstm_do=config_dict['lstm_do'],
                            use_attn=config_dict['use_attention'],
                            emb_do=config_dict['emb_do'], word_do=word_dropout)
 
 if not skip_disc:
-    clf_in_shape = max_len * (2 if config_dict['bidir'] else 1) * config_dict[
-        'hidden_dim']
+    clf_in_shape = max_len * (2 if config_dict['bidir_gen'] else 1) *\
+                   config_dict['hidden_dim']
     lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
     lat_clf.to(device)
     lat_clf.apply(weights_init)

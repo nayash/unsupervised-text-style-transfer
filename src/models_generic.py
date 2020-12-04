@@ -75,15 +75,20 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, output_size_src, output_size_tgt, hidden_size,
                  word_emb_src, word_emb_tgt, device, batch_first=True, layers=1,
-                 bidirectional=False, dropout=0.0, use_attn=False, emb_do=0.0):
+                 bidirectional=False, dropout=0.0, use_attn=False, emb_do=0.0,
+                 enc_layers=1, enc_bidir=False):
         super(Decoder, self).__init__()
 
         self.device = device
         self.use_attn = use_attn
         self.batch_first = batch_first
         self.bidirectional = bidirectional
+        self.dir_dim = 1+int(bidirectional)
         self.layers = layers
         self.hidden_size = hidden_size
+        self.enc_layers = enc_layers
+        self.enc_bidir = enc_bidir
+        self.is_enc_dec_diff = enc_bidir != bidirectional or layers != enc_layers
         self.out_size_src = output_size_src
         self.out_size_tgt = output_size_tgt
         self.emb_src = nn.Embedding(output_size_src, hidden_size)
@@ -97,11 +102,6 @@ class Decoder(nn.Module):
                             dropout=dropout)  # input_size = len of sequence
         attn_in_size = self.attn_in_size()
         if use_attn:
-            # self.attn_param = nn.Parameter(torch.randn(hidden_size))
-            # self.fc1 = nn.Linear((1+int(bidirectional)) * hidden_size, hidden_size)
-            # self.fc2 = nn.Linear((1+int(bidirectional)) * hidden_size, hidden_size)
-            # self.tanh = nn.Tanh()
-            # self.softmax = nn.Softmax(dim=1)
             self.attention = Attention((1+int(bidirectional))*hidden_size)
 
         self.linear = nn.Linear((1+int(bidirectional)) * hidden_size,
@@ -109,10 +109,28 @@ class Decoder(nn.Module):
         # self.lrelu = nn.LeakyReLU(0.2)
         self.log_softmax = nn.LogSoftmax(dim=2)
 
-    def forward(self, input, hidden, enc_out):
-        # input => [batch_size, 1], hidden[0]/[1] => [dir, bs, emb_dim]
+    def forward(self, input, hidden, enc_out, position):
+        # input => [batch_size, 1], hidden[0]/[1] => [layers*dir, bs, emb_dim]
         # enc_out => [bs, max_len, emb_dim*dir]
-        assert self.mode
+        print('original', hidden[0].shape, hidden[1].shape, enc_out.shape, self.is_enc_dec_diff)
+        if position == 0:
+            if self.is_enc_dec_diff:
+                h0 = hidden[0].view(self.enc_layers, 1 + int(self.enc_bidir),
+                                    input.size(0), self.hidden_size)
+                h1 = hidden[1].view(self.enc_layers, 1 + int(self.enc_bidir),
+                                    input.size(0), self.hidden_size)
+                print('1_', h0.shape, h1.shape)
+                hidden = (h0[-self.layers:, :self.dir_dim].
+                          view(-1, input.size(0), self.hidden_size).contiguous()
+                    , h1[-self.layers:, :self.dir_dim].
+                          view(-1, input.size(0), self.hidden_size).contiguous())
+                self.enc_out = enc_out.view(input.size(0), enc_out.size(1), 1+int(self.enc_bidir),
+                             self.hidden_size)[:, :, 0, :]  # keep only forward hidden
+            else:
+                self.enc_out = enc_out
+
+        print('after', hidden[0].shape, hidden[1].shape, self.enc_out.shape)
+
         if self.mode == src2tgt or self.mode == tgt2tgt:
             emb = self.emb_tgt(input)  # (batch, seq_len, emb_dim)
             out_dim = self.out_size_tgt
@@ -125,14 +143,10 @@ class Decoder(nn.Module):
 
         if self.use_attn:
             # Bahdanau's attention
-            h = hidden[0].view(self.layers, (1+int(self.bidirectional)),
+            h = hidden[0].view(self.layers, self.dir_dim,
                                input.size(0), self.hidden_size)[-1]  # [dir, bs, dim]
             h = h.permute(1, 0, 2).reshape(input.size(0), 1, -1)  # [bs, 1, dir*emb_dim]
-            # attn_wts = self.softmax(self.tanh(self.fc1(h) + self.fc2(enc_out)) * self.attn_param).\
-            #     sum(-1).unsqueeze(-1)  # [bs, max_len, 1]
-            # lstm_in = torch.sum(enc_out * attn_wts, dim=1).\
-            #     view(enc_out.size(0), 1, -1)  # [bs, 1, dir*emb]
-            lstm_in, attn_wts = self.attention(h, enc_out)  # [bs, 1, dir*emb]
+            lstm_in, attn_wts = self.attention(h, self.enc_out)  # [bs, 1, dir*emb]
             lstm_in = torch.cat((lstm_in, emb), -1)  # [bs, 1, dir*emb+emb]
         else:
             lstm_in = emb
@@ -178,22 +192,29 @@ class Decoder(nn.Module):
 class GeneratorModel(nn.Module):
     def __init__(self, input_vocab_src, input_vocab_tgt, hidden_size,
                  batch_size, word_emb_src, word_emb_tgt, device,
-                 batch_first=True, layers=1, bidirectional=False, lstm_do=0.0,
-                 use_attn=False, emb_do=0, word_do=0.0):
+                 batch_first=True, layers_gen=1, layers_dec=1, bidir_gen=False,
+                 bidir_dec=False, lstm_do=0.0, use_attn=False, emb_do=0,
+                 word_do=0.0):
         super(GeneratorModel, self).__init__()
         self.device = device
         self.batch_size = batch_size
         self.batch_first = batch_first
+        self.layers_gen = layers_gen
+        self.layers_dec = layers_dec
+        self.bidir_gen = bidir_gen
+        self.bidir_dec = bidir_dec
+        self.hidden_size = hidden_size
         self.encoder = Encoder(input_vocab_src, input_vocab_tgt, hidden_size,
                                word_emb_src, word_emb_tgt, device,
                                batch_first=batch_first,
-                               bidirectional=bidirectional, layers=layers,
+                               bidirectional=bidir_gen, layers=layers_gen,
                                dropout=lstm_do, word_do=word_do)
         self.decoder = Decoder(input_vocab_src, input_vocab_tgt,  hidden_size,
-                               word_emb_src, word_emb_tgt, device, layers=layers,
-                               bidirectional=bidirectional,
+                               word_emb_src, word_emb_tgt, device,
+                               layers=layers_dec, bidirectional=bidir_dec,
                                batch_first=batch_first, dropout=lstm_do,
-                               use_attn=use_attn, emb_do=emb_do)
+                               use_attn=use_attn, emb_do=emb_do,
+                               enc_layers=layers_gen, enc_bidir=bidir_gen)
         self.enc_sos = None
         self.dec_sos = None
         # self.linear_topk = nn.Linear()
@@ -211,7 +232,7 @@ class GeneratorModel(nn.Module):
 
         for i in range(enc_out.size(1)):
             out, decoder_hidden = self.decoder(decoder_input, decoder_hidden,
-                                               enc_out)  # out=> [1, 1, vocab]
+                                               enc_out, i)  # out=> [1, 1, vocab]
             pred, idx = out.topk(1)
             decoder_input = idx.view(idx.size(0), 1)
             decoder_out.append(idx.squeeze())
@@ -304,7 +325,7 @@ class Attention(nn.Module):
          >>> output, weights = attention(query, context)
          >>> output.size()
          torch.Size([5, 1, 256])
-         >>> weights.size()
+         >>> weights.size()output
          torch.Size([5, 1, 5])
     """
 
@@ -349,8 +370,7 @@ class Attention(nn.Module):
 
         # (batch_size, output_len, dimensions) * (batch_size, query_len, dimensions) ->
         # (batch_size, output_len, query_len)
-        attention_scores = torch.bmm(query,
-                                     context.transpose(1, 2).contiguous())
+        attention_scores = torch.bmm(query, context.transpose(1, 2).contiguous())
 
         # Compute weights across every context sequence
         attention_scores = attention_scores.view(batch_size * output_len,

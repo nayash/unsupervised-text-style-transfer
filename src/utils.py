@@ -21,6 +21,7 @@ import time
 from nltk.tokenize import sent_tokenize, word_tokenize
 from constants import *
 import multiprocessing as mp
+import random
 
 
 def unicodeToAscii(s):
@@ -63,6 +64,7 @@ def clean_text_yelp(text):
     text = text.replace(" 've", ' have')
     text = text.replace(" ve ", ' have')
     text = text.replace(" 'd", ' would')
+    text = text.replace(" 'll ", " will ")
     text = text.replace(" 'm", ' am')
     text = text.replace(" m ", ' am ')
     text = text.replace("&", 'and')
@@ -128,6 +130,9 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
                 word2idx[word] = idx
                 idx2word[idx] = word
                 word_emb.append([float(i) for i in emb])
+                if len(emb) < emb_dim:
+                    word_emb.extend([random.uniform(0, 1) for d in
+                                     range(emb_dim-len(emb))])
     else:
         assert emb_dim > 0, "if embedding vectors file is not provided, " \
                             "embedding dimension has to be passed explicitly."
