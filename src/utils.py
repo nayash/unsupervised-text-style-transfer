@@ -148,8 +148,8 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
     return word2idx, idx2word, word_emb
 
 
-def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3,
-                                       emb_dim=-1):
+def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
+                                       workers=3, emb_dim=-1):
     word2idx = {}
     idx2word = {}
     word_emb = []
@@ -183,15 +183,15 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, workers=3,
         prev = _[0]
 
     # now add words from corpus which are missing in Glove embeddings
-    diff = list(set(words).difference(word2idx.keys()))
-    print('diff', diff[:200], len(diff))
-    # for word in diff:
-    #     word2idx[word] = len(word_emb)
-    #     if len(word_emb) in idx2word:
-    #         raise Exception("word index already exists", len(word_emb),
-    #                         idx2word[len(word_emb)], word)
-    #     idx2word[len(word_emb)] = word
-    #     word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
+    # diff = list(set(words).difference(word2idx.keys()))
+    # print('diff', diff[:200], len(diff))
+    for word in extra_tokens:
+        word2idx[word] = len(word_emb)
+        if len(word_emb) in idx2word:
+            raise Exception("word index already exists", len(word_emb),
+                            idx2word[len(word_emb)], word)
+        idx2word[len(word_emb)] = word
+        word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
     return word2idx, idx2word, word_emb
 
 
@@ -311,6 +311,6 @@ def vocab_from_sents(sents, pool, extra_tokens, GLOVE_PATH=None, emb_dim=-1):
     words = list(set(words))
     words.extend(extra_tokens)
     word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
-        GLOVE_PATH, words, pool, mp.cpu_count(), emb_dim=emb_dim)
+        GLOVE_PATH, words, pool, extra_tokens, mp.cpu_count(), emb_dim=emb_dim)
 
     return word2idx, idx2word, word_emb

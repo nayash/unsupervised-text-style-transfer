@@ -1,4 +1,4 @@
-from models_generic import *
+from models import *
 import os
 import pickle
 from pathlib import Path
@@ -13,6 +13,8 @@ from constants import *
 
 '''
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
+python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.txt --cpfile data_cp8.pk
+/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''
 
 ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
@@ -80,10 +82,12 @@ def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len, type=mode,
     temp.extend([word2idx['PAD']] * (max_len - len(temp)))
     return torch.tensor(temp)  # , device=device
 
+
 with open(eval_file_path, encoding='utf-8', errors='ignore') as file:
     lines_ = file.readlines()
     lines = [clean_text_func(line) for line in lines_]
-    tensors = [sent_to_tensor(sent) for sent in lines]
+    max_len = max([len(line.split()) for line in lines])+3
+    tensors = [sent_to_tensor(sent, max_len=max_len) for sent in lines]
     tensors = torch.stack(tensors)
 
 word_emb_src = torch.tensor(word_emb_src)
@@ -92,19 +96,30 @@ word_emb_src = word_emb_src/torch.norm(word_emb_src, dim=1).unsqueeze(-1)
 word_emb_tgt = torch.tensor(word_emb_tgt)
 word_emb_tgt = word_emb_tgt/torch.norm(word_emb_tgt, dim=1).unsqueeze(-1)
 
+# generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
+#                            config_dict['batch_size'], word_emb_src, word_emb_tgt,
+#                            device, layers=config_dict['layers'],
+#                            bidirectional=bool(config_dict['bidir']),
+#                            lstm_do=config_dict['lstm_do'],
+#                            use_attn=config_dict['use_attention'],
+#                            emb_do=config_dict['emb_do'])
+
 generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
-                           config_dict['batch_size'], word_emb_src, word_emb_tgt,
-                           device, layers=config_dict['layers'],
-                           bidirectional=bool(config_dict['bidir']),
-                           lstm_do=config_dict['lstm_do'],
-                           use_attn=config_dict['use_attention'],
-                           emb_do=config_dict['emb_do'])
+               config_dict['batch_size'], word_emb_src, word_emb_tgt,
+               device, layers_gen=config_dict['layers_gen'],
+               layers_dec=config_dict['layers_dec'],
+               bidir_gen=config_dict['bidir_gen'],
+               bidir_dec=config_dict['bidir_dec'],
+               lstm_do=config_dict['lstm_do'],
+               use_attn=config_dict['use_attention'],
+               emb_do=config_dict['emb_do'])
 
 
 # state = torch.load(resume_history, map_location='cpu')
 generator.load_state_dict(torch.load(run_path/'best_modelG.pt'))
 generator.to(device)
 tensors.to(device)
+generator.eval()
 
 
 def tensor_to_sentence(sent_tensor, idx2word=idx2word):

@@ -40,8 +40,8 @@
   "emb_do": 0.2,
   "adv_training": true,
   "max_sentence_len": 8,
-  "max_samples": 1e6,
-  "val_split": 0.025,
+  "max_samples": 2e6,
+  "val_split": 0.020,
   "sample_generation_interval_iters": 500,
   "print_samples": true
 }
