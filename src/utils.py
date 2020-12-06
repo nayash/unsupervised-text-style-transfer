@@ -23,6 +23,7 @@ from constants import *
 # from src.constants import *
 import multiprocessing as mp
 import random
+from pathlib import Path
 
 
 def unicodeToAscii(s):
@@ -56,8 +57,11 @@ def clean_text(text):
 
 def clean_text_yelp(text):
     # text = ''.join(text)
+    if text.startswith('URL:') or \
+            re.match('http(s?):\/\/[^\n\s]*', text):
+        return None
     text = text.lower()
-    text = text.replace(r'\/', ' ')  # e.g. staff/owner
+    text = text.replace(r'\/', ' ')  # e.g. staff/owner => staff owner
     text = re.sub(r'(.)\1{2,}', r'\1', text)  # ohhhhkay => okay
     text = ' '.join(word_tokenize(text))
     text = text.replace('_num_', 'NUMBER')
@@ -88,7 +92,34 @@ def clean_text_yelp(text):
     date_regex = day_regex+'\s('+month_names+')'
 
     text = re.sub(date_regex, 'DATE', text)
-    text = re.sub(r'\d+', 'NUMBER', text)
+    text = re.sub(r'\d+(\.\d+)?', 'NUMBER', text)
+    return text
+
+
+def clean_text_de(text):
+    # text = ''.join(text)
+    if text.startswith('URL:') or text.startswith('Adresse:') or \
+            re.match('http(s?):\/\/.*\.html', text):
+        return None
+    text = text.lower()
+    text = text.replace(r'\/', ' ')  # e.g. staff/owner => staff owner
+    text = re.sub(r'(.)\1{2,}', r'\1', text)  # ohhhhkay => okay
+    text = ' '.join(word_tokenize(text))
+    text = text.replace('\\n', ' ').replace("\\","")
+    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:\/]', ' ', text)
+    text = re.sub(r'[-—_,]', ' ', text)
+    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
+    text = re.sub(r'[()]', '', text)
+    text = re.sub(r'(\.\s?\.)', '.', text)
+    text = re.sub(r"\s+", ' ', text)
+
+    month_names = '|'.join([calendar.month_name[i].lower()
+                            for i in range(1, 13)])
+    day_regex = r'\d{1,2}(st|nd|rd|th)'
+    date_regex = day_regex+'\s('+month_names+')'
+
+    text = re.sub(date_regex, 'DATUM', text)
+    text = re.sub(r'\d+(\.\d+)?', 'NUMMER', text)
     return text
 
 
@@ -125,6 +156,8 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
         with open(emb_path) as file:
             for i, line in enumerate(file):
                 split = line.split()
+                if len(split) == 2:  # skip header
+                    continue
                 word = split[0]
                 if word not in words:
                     continue
@@ -149,7 +182,7 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
 
 
 def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
-                                       workers=3, emb_dim=-1):
+                                       workers=3, emb_dim=-1, skip_oov=True):
     word2idx = {}
     idx2word = {}
     word_emb = []
@@ -183,9 +216,13 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
         prev = _[0]
 
     # now add words from corpus which are missing in Glove embeddings
-    # diff = list(set(words).difference(word2idx.keys()))
-    # print('diff', diff[:200], len(diff))
-    for word in extra_tokens:
+    diff = []
+    if not skip_oov:
+        diff.extend(list(set(words).difference(word2idx.keys()))) # this includes extra_tokens
+        print('diff', diff[:200], len(diff))
+    else:
+        diff = extra_tokens.copy()
+    for word in diff:
         word2idx[word] = len(word_emb)
         if len(word_emb) in idx2word:
             raise Exception("word index already exists", len(word_emb),
@@ -224,7 +261,7 @@ def get_readable_ctime():
 
 # small functions to enable parallelization
 def is_sent_shorter(sent, max_len):
-    return len(word_tokenize(sent)) <= max_len
+    return sent is not None and len(word_tokenize(sent)) <= max_len
 
 
 def len_word_tokenize(sent):
@@ -303,7 +340,8 @@ def sent_to_tensor(sentence, **kwargs):
     return torch.tensor(temp)
 
 
-def vocab_from_sents(sents, pool, extra_tokens, GLOVE_PATH=None, emb_dim=-1):
+def vocab_from_sents(sents, pool, extra_tokens, emb_path=None, emb_dim=-1,
+                     skip_oov=True):
     words = pool.map(word_tokenize, sents)
     words = [w for l in words for w in l]
     count_dict = Counter(words)
@@ -311,6 +349,14 @@ def vocab_from_sents(sents, pool, extra_tokens, GLOVE_PATH=None, emb_dim=-1):
     words = list(set(words))
     words.extend(extra_tokens)
     word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
-        GLOVE_PATH, words, pool, extra_tokens, mp.cpu_count(), emb_dim=emb_dim)
+        emb_path, words, pool, extra_tokens, mp.cpu_count(), emb_dim=emb_dim,
+    skip_oov=skip_oov)
 
     return word2idx, idx2word, word_emb
+
+
+def get_dir_size_mb(path):
+    # st_size returns in bytes
+    size_bytes = sum(f.stat().st_size for f in path.glob('**/*') if f.is_file())
+    return size_bytes/(1024**2)
+

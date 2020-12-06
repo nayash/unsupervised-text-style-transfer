@@ -7,6 +7,7 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
+import sys
 
 import torch
 from torch import nn
@@ -125,7 +126,7 @@ class Decoder(nn.Module):
                     , h1[-self.layers:, :self.dir_dim].
                           view(-1, input.size(0), self.hidden_size).contiguous())
                 self.enc_out = enc_out.view(input.size(0), enc_out.size(1), 1+int(self.enc_bidir),
-                             self.hidden_size)[:, :, 0, :]  # keep only forward hidden
+                             self.hidden_size).mean(2)  # [:, :, 0, :]  # keep only forward hidden
             else:
                 self.enc_out = enc_out
 

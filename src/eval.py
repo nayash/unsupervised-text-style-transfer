@@ -10,6 +10,7 @@ from utils import *
 import torch
 from constants import *
 from constants import *
+from torchtext.data.metrics import bleu_score
 
 '''
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
@@ -144,5 +145,10 @@ def eval_model_tensor(generator, x, mode, batch_size=100):
 
 
 result = eval_model_tensor(generator, tensors, mode)
-for i, line in enumerate(lines_):
+candidate_corpus = []
+ref_corpus = []
+for i, line in enumerate(lines):
     print(line.strip(), '-->', result[i])
+    candidate_corpus.append(word_tokenize(result[i]))
+    ref_corpus.append(word_tokenize(line))
+    print('bleu', bleu_score(candidate_corpus, ref_corpus))

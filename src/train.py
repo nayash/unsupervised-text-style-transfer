@@ -48,20 +48,64 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 '''
 supported arguments
 ---------------------
+usage: train.py [-h] [-s INSRC] [-t INTGT] [--srcemb SRCEMB]
+                [--tgtemb TGTEMB] [-c CONFIG] [-e EXPID]
+                [--cleanfunc CLEANFUNC] [-f] [-r] [--test] [--device DEVICE]
+                [--epochs EPOCHS] [--genlr GENLR]
 
-input file with source sentences: -s or --insrc
-input file with target sentences: -t or --intgt
-help : -h or --help
-path to file with raw (text as paragraphs) source data: --rawsrc
-path to file with raw (text as paragraphs) target data: --rawtgt => if
-rawsrc or rawtgt is provided then data is processed and stored at
-input path. 'insrc' or 'intgt' params are ignored if provided and the
-processed (and saved) data is used instead.
-model config: -c or --config  -> path to a file with model configuration
-in JSON format (python dict like). Check out default config dic for
-all supported keys.
+optional arguments:
+  -h, --help            show this help message and exit
+  -s INSRC, --insrc INSRC
+                        path for source data file with each source sentence
+                        in a new line. Default is yelp negative
+  -t INTGT, --intgt INTGT
+                        path for target data file with each target sentence
+                        in a new line. Default is yelp dataset
+  --srcemb SRCEMB       path to word embeddings for source language.
+                        Fileshould be in Glove format without the headers.If
+                        you don't have any embeddings pass "random"which
+                        would init embeddings to random vectors.Default is
+                        /home/asutosh/Documents/ml_projects/unsupervised-
+                        text-style-transfer/inputs/glove.6B.200d.txt
+  --tgtemb TGTEMB       path to word embeddings for target language. should
+                        be in Glove format without the headers. If you don't
+                        have any embeddings pass "random" which would init
+                        embeddings to random vectors. If nothing is passed
+                        then "srcemb" parameter value is used.
+  -c CONFIG, --config CONFIG
+                        configuration/hyperparameters in json format
+  -e EXPID, --expid EXPID
+                        identifier for track your experiment. This is used to
+                        create log files folder. All files specific to this
+                        experiment will be stored in a specific folder. If
+                        passed run_id already exists, exception is be thrown.
+                        Use special "temp" for test runs.
+  --cleanfunc CLEANFUNC
+                        you can implement your own text cleaning function in
+                        utils.py, suitable for your data or use one of the
+                        already implemented functions. function should accept
+                        a sentence as argument. for e.g. see "clean_text"
+                        func in utils.py. Default = clean_text_yelp
+  -f, --force           if passed then the data clean up processing is done
+                        again instead of of using the saved data checkpoints
+  -r, --resume          if passed then training is resumed from saved states.
+                        please note that with this option you must pass
+                        existing "expid" argument
+  --test                short test run
+  --device DEVICE       training/inference to be done on this device.
+                        supported values are "cuda" (default) or "cpu"
+  --epochs EPOCHS       number of epochs to be trained for. This paramis
+                        already passed in config.json file. You can use this
+                        argument to overwrite the config paramwhile resuming
+                        the training with more epochs
+  --genlr GENLR         generator learning rate, which will
+                        overwriteconfig.json file value. used only while
+                        resumingtraining of a model from saved checkpoints.
 
+e.g. --
 python train.py --expid torchAttn_2lstm_smallData -s "./inputs/yelp-reviews-preprocessed/sentiment.0.all (copy).txt" -t "./inputs/yelp-reviews-preprocessed/sentiment.1.all (copy).txt" -f
+python train.py --expid de-en-noSkipOov -s "../inputs/news/news.2007.de.shuffled" -t "../inputs/news/news.2007.en.shuffled" --srcemb '../inputs/word_embs/cc.de.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_de --cleanfunctgt clean_text_yelp
+
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
 '''
@@ -72,7 +116,7 @@ np.random.seed(seed)
 ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
 INPUT_PATH = ROOT_PATH / 'inputs'
 OUTPUT_PATH = ROOT_PATH / 'outputs'
-GLOVE_PATH = INPUT_PATH / 'glove.6B.200d.txt'
+GLOVE_PATH = INPUT_PATH / 'word_embs' / 'glove.6B.200d.txt'
 YELP_PATH = INPUT_PATH / 'yelp-reviews-preprocessed'
 src_sents = 'sentiment.0.all.txt'
 tgt_sents = 'sentiment.1.all.txt'
@@ -106,8 +150,17 @@ arg_parser.add_argument('-e', '--expid', default='temp',
                         to this experiment will be stored in a specific \
                         folder. If passed run_id already exists, exception \
                         is be thrown. Use special "temp" for test runs.')
-arg_parser.add_argument('--cleanfunc', default='clean_text_yelp',
-                        help='you can implement your own text cleaning function '
+arg_parser.add_argument('--cleanfuncsrc', default='clean_text_yelp',
+                        help='text cleaning function for src sentences.'
+                             'you can implement your own text cleaning function '
+                             'in utils.py, suitable for your data or use one of '
+                             'the already implemented functions. function should'
+                             ' accept a sentence as argument. for e.g. see '
+                             '"clean_text" func in utils.py. '
+                             'Default = clean_text_yelp')
+arg_parser.add_argument('--cleanfunctgt', default='clean_text_yelp',
+                        help='text cleaning function for tgt sentences.'
+                             'you can implement your own text cleaning function '
                              'in utils.py, suitable for your data or use one of '
                              'the already implemented functions. function should'
                              ' accept a sentence as argument. for e.g. see '
@@ -135,6 +188,15 @@ arg_parser.add_argument('--genlr', default=-1, type=float,
                         help='generator learning rate, which will overwrite'
                              'config.json file value. used only while resuming'
                              'training of a model from saved checkpoints.')
+arg_parser.add_argument('--cp_vocab', default=None,
+                      help='path to saved file with vocabulary. pass this'
+                           'if you want to reuse processed data from a previous'
+                           ' experiment. If None, process data again.')
+arg_parser.add_argument('--cp_tensors', default=None,
+                      help='path to saved file with sentences converted to '
+                           'tensors. pass this if you want to reuse processed '
+                           'data from a previous experiment. If None, process '
+                           'data again.')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
@@ -146,12 +208,14 @@ if not args.tgtemb:
 else:
     tgt_word_emb_path = os.path.abspath(args.tgtemb) if not args.tgtemb == \
                                                             'random' else args.tgtemb
+
 config_path = os.path.abspath(args.config)
 run_id = args.expid
 force_preproc = args.force
 is_resume = args.resume
-clean_text_func = locals()[args.cleanfunc]
-
+clean_text_func_src = locals()[args.cleanfuncsrc]
+clean_text_func_tgt = locals()[args.cleanfunctgt]
+print('cleaning funtions', clean_text_func_src, clean_text_func_tgt)
 run_path = OUTPUT_PATH / 'runs' / run_id
 log_path = run_path / 'logs'
 
@@ -171,10 +235,18 @@ with open(config_path, 'r') as file:
     config_dict = json.loads(_)
 
 max_len = config_dict["max_sentence_len"]
-data_cp_path = OUTPUT_PATH / ('data_cp' + str(max_len) + '.pk')
-tensors_path = OUTPUT_PATH / ('data_tensors_cp' + str(max_len) + '.pt')
-print('data_cp_path', data_cp_path)
-print('tensor_path', tensors_path)
+if not args.cp_vocab:
+    data_cp_path = run_path / ('data_cp' + str(max_len) + '.pk')
+else:
+    data_cp_path = os.path.abspath(args.cp_vocab)
+if not args.cp_tensors:
+    tensors_path = run_path / ('data_tensors_cp' + str(max_len) + '.pt')
+else:
+    tensors_path = os.path.abspath(args.cp_tensors)
+logger.append_log('data_cp_path', data_cp_path)
+logger.append_log('tensor_path', tensors_path)
+logger.append_log('input sentences path', src_file_path, tgt_file_path)
+logger.append_log('embedding paths:', src_word_emb_path, tgt_word_emb_path)
 src_sents = []
 tgt_sents = []
 
@@ -188,9 +260,9 @@ if force_preproc or not data_cp_path.exists():
         temp = file.readlines(buffer)
         while temp:
             src_sents.extend(pool.map(partial(clean_text_wrapper,
-                                              clean_text_func=clean_text_func,
+                                              clean_text_func=clean_text_func_src,
                                               max_len=max_len), temp,
-                                      chunksize=10000))
+                                      chunksize=20000))
             src_sents = list(filter(None, src_sents))
             if len(src_sents) > config_dict['max_samples']:
                 logger.append_log('reached ', len(src_sents),
@@ -210,9 +282,9 @@ if force_preproc or not data_cp_path.exists():
         temp = file.readlines(buffer)
         while temp:
             tgt_sents.extend(pool.map(partial(clean_text_wrapper,
-                                              clean_text_func=clean_text_func,
+                                              clean_text_func=clean_text_func_tgt,
                                               max_len=max_len),
-                                      temp, chunksize=10000))
+                                      temp, chunksize=20000))
             tgt_sents = list(filter(None, tgt_sents))
             if len(tgt_sents) > config_dict['max_samples']:
                 logger.append_log('reached ', len(tgt_sents),
@@ -242,12 +314,16 @@ if force_preproc or not data_cp_path.exists():
     word2idx_src, idx2word_src, word_emb_src = vocab_from_sents(src_sents, pool,
                                                                 extra_tokens_src,
                                                                 src_word_emb_path,
-                                                                emb_dim=config_dict['hidden_dim'])
+                                                                emb_dim=
+                                                                config_dict['hidden_dim'],
+                                                                skip_oov=config_dict['skip_oov'])
     logger.append_log('building vocabulary for target language ...')
     word2idx_tgt, idx2word_tgt, word_emb_tgt = vocab_from_sents(tgt_sents, pool,
                                                                 extra_tokens_tgt,
                                                                 tgt_word_emb_path,
-                                                                emb_dim=config_dict['hidden_dim'])
+                                                                emb_dim=
+                                                                config_dict['hidden_dim'],
+                                                                skip_oov=config_dict['skip_oov'])
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents}
     logger.append_log('finding maximum sentence length...')
@@ -297,7 +373,7 @@ noisy_input = bool(config_dict['noisy_input'])
 noisy_cd_input = bool(config_dict['noisy_cd_input'])
 # shuffle_prob = config_dict['shuffle_prob']  # not used
 
-logger.append_log('config_dic:', config_dict)
+logger.append_log('config_dict:', config_dict)
 logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
@@ -313,16 +389,21 @@ assert word_emb_src.size(-1) == config_dict['hidden_dim'] and \
     'json are different. word embedding dim=' + str(word_emb_src.size(-1)) + \
     ', hidden dim in config=' + str(config_dict['hidden_dim'])
 
+assert len(word2idx_src) == len(idx2word_src) and \
+       len(word2idx_tgt) == len(idx2word_tgt), 'word tokenization wrong'
+
 logger.append_log('src and tgt word embeddings are',
-      'equal' if torch.equal(word_emb_src, word_emb_tgt) else 'not equal')
+                  'equal' if torch.equal(word_emb_src,
+                                         word_emb_tgt) else 'not equal')
 
 
-def get_noisy_tensor_grad(tensor,  word2idx=None, drop_prob=0.1):
+def get_noisy_tensor_grad(tensor, word2idx=None, drop_prob=0.1):
     # TODO this is being called in each iteration and on each row of tensor.
     #  need to optimize. Need to vectorize this whole op.
     try:
         try:
-            eos_index = (tensor == word2idx['EOS']).nonzero(as_tuple=False)[0][0]
+            eos_index = (tensor == word2idx['EOS']).nonzero(as_tuple=False)[0][
+                0]
         except:
             eos_index = tensor.size(0) - 1
 
@@ -410,6 +491,8 @@ def log_samples_text_interm(samples, epoch):
         text += '\n*********************\n'
     return text
 
+# pool.close()
+# pool = mp.Pool(2)
 
 if force_preproc or not tensors_path.exists():
     logger.append_log('converting sentences to tensors...')
@@ -419,11 +502,17 @@ if force_preproc or not tensors_path.exists():
     _ = time.time()
     [x_src.append(sent_to_tensor(sent, max_len=max_len, type='src',
                                  word2idx=word2idx_src)) for sent in src_sents]
+    # x_src.extend(pool.map(partial(sent_to_tensor, type='src',
+    #                                   max_len=max_len, word2idx=word2idx_src),
+    #                           src_sents, chunksize=1000))
     print('x_src', len(x_src), (time.time() - _))
 
     _ = time.time()
     [x_tgt.append(sent_to_tensor(sent, max_len=max_len, type='tgt',
                                  word2idx=word2idx_tgt)) for sent in tgt_sents]
+    # x_tgt.extend(pool.map(partial(sent_to_tensor, type='tgt',
+    #                               max_len=max_len, word2idx=word2idx_tgt),
+    #                       tgt_sents, chunksize=1000))
     print('x_tgt', len(x_tgt), (time.time() - _))
     x_src = torch.stack(x_src)
     x_tgt = torch.stack(x_tgt)
@@ -498,8 +587,10 @@ logger.append_log('train/test size',
 # construct models, optimizers, losses
 skip_disc = not bool(config_dict['adv_training'])
 
-generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
-                           config_dict['batch_size'], word_emb_src, word_emb_tgt,
+generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt),
+                           config_dict['hidden_dim'],
+                           config_dict['batch_size'], word_emb_src,
+                           word_emb_tgt,
                            device, layers_gen=config_dict['layers_gen'],
                            layers_dec=config_dict['layers_dec'],
                            bidir_gen=config_dict['bidir_gen'],
@@ -509,7 +600,7 @@ generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hi
                            emb_do=config_dict['emb_do'], word_do=word_dropout)
 
 if not skip_disc:
-    clf_in_shape = max_len * (2 if config_dict['bidir_gen'] else 1) *\
+    clf_in_shape = max_len * (2 if config_dict['bidir_gen'] else 1) * \
                    config_dict['hidden_dim']
     lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
     lat_clf.to(device)
@@ -522,6 +613,9 @@ generator.apply(weights_init)
 
 lr_reduce_factor = config_dict['gen_lr_reduce_factor']
 lr_reduce_patience = config_dict['gen_lr_reduce_patience']
+lr_reduce_factor_iter = config_dict['gen_lr_reduce_factor_iter']
+lr_reduce_patience_iter = config_dict['gen_lr_reduce_patience_iter']
+lr_reduce_counter = 0
 
 lr_reduce_factorD = config_dict['disc_lr_reduce_factor']
 lr_reduce_patienceD = config_dict['disc_lr_reduce_patience']
@@ -647,7 +741,8 @@ train_lossesG = []
 train_lossesD = []
 start_time = time.time()
 prev_best_loss = np.inf
-early_stop_patience = config_dict['early_stop_patience']  # lr_reduce_patience * 3
+early_stop_patience = config_dict[
+    'early_stop_patience']  # lr_reduce_patience * 3
 early_stop_counter = 0
 scaler = StandardScaler()
 disc_noise_prob = 0.2
@@ -835,7 +930,8 @@ for epoch in range(resume_epoch, epochs):
                             row_apply(gen_out_tgt[:5], tensor_to_sentence,
                                       False, extras={'idx2word': idx2word_src}),
                             row_apply(gen_bt_tgt2src[:5], tensor_to_sentence,
-                                      False, extras={'idx2word': idx2word_tgt})))
+                                      False,
+                                      extras={'idx2word': idx2word_tgt})))
 
             # 4. train discriminator to identify encoder outputs belonging to
             # input type src and tgt
@@ -942,9 +1038,8 @@ for epoch in range(resume_epoch, epochs):
                 if test_mode and iter_no > 2:
                     break
 
-            if (iter_no % config_dict[
-                'sample_generation_interval_iters'] == 0 or test_mode) \
-                    and val_split > 0:
+            if (iter_no % config_dict['sample_generation_interval_iters'] == 0
+                    or test_mode) and val_split > 0:
                 try:
                     val_loss = eval_model_dl(generator, dl_src_test,
                                              dl_tgt_test, word2idx_src,
@@ -967,6 +1062,18 @@ for epoch in range(resume_epoch, epochs):
                         torch.save(generator.state_dict(),
                                    run_path / 'best_modelG.pt')
                         logger.append_log('saved iter best model')
+                        lr_reduce_counter = 0
+                    else:
+                        lr_reduce_counter += 1
+                        if lr_reduce_counter > lr_reduce_patience_iter:
+                            for zz, g in enumerate(optimG.param_groups):
+                                g['lr'] = g['lr']*lr_reduce_factor_iter
+                            logger.append_log('generator LR reduced to',
+                                              g['lr'])
+                            lr_reduce_counter = 0
+                        else:
+                            logger.append_log('generator LR reduce counter'
+                                              'incremented', lr_reduce_counter)
 
                     _ = log_samples_text_interm(samples, str(
                         epoch) + '(' + str(
@@ -979,6 +1086,7 @@ for epoch in range(resume_epoch, epochs):
 
                     # if config_dict['gen_lr_sched'] != 'cyclic':
                     #     lr_sched_G.step(val_loss)
+
                 except Exception as e:
                     logger.append_log('log failed1', e)
                     traceback.print_exc()
@@ -1015,6 +1123,7 @@ for epoch in range(resume_epoch, epochs):
         torch.save(generator.state_dict(), run_path / 'best_modelG.pt')
         logger.append_log('new best val loss {}. State saved.'.format(val_loss))
         early_stop_counter = 0
+        lr_reduce_counter = 0
     else:
         early_stop_counter += 1
         logger.append_log('early stop counter increament to',

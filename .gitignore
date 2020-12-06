@@ -1,6 +1,8 @@
 
 /outputs/*
 /inputs/pre-trained/*
+/inputs/news/*
+/inputs/word_embs/*
 /inputs/glove.6B.200d.txt
 /inputs/yelp_academic_dataset_review.json
 /inputs/yelp-reviews-preprocessed/sentiment.0.all.txt
@@ -8,6 +10,7 @@
 /inputs/yelp-reviews-preprocessed/sentiment.0.all_.txt
 /inputs/yelp-reviews-preprocessed/sentiment.1.all_.txt
 /.idea
+/outputs/.temp
 src/__pycache__/
 src/secrets.py
 src/scratch_pad.py
