@@ -2,6 +2,7 @@
 /outputs/*
 /inputs/pre-trained/*
 /inputs/news/*
+/inputs/fr-en/*
 /inputs/word_embs/*
 /inputs/glove.6B.200d.txt
 /inputs/yelp_academic_dataset_review.json

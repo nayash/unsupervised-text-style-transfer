@@ -104,7 +104,9 @@ optional arguments:
 
 e.g. --
 python train.py --expid torchAttn_2lstm_smallData -s "./inputs/yelp-reviews-preprocessed/sentiment.0.all (copy).txt" -t "./inputs/yelp-reviews-preprocessed/sentiment.1.all (copy).txt" -f
-python train.py --expid de-en-noSkipOov -s "../inputs/news/news.2007.de.shuffled" -t "../inputs/news/news.2007.en.shuffled" --srcemb '../inputs/word_embs/cc.de.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_de --cleanfunctgt clean_text_yelp
+python train.py --expid de-en-noSkipOov-noMinFreq -s "../inputs/news/news.2007.de.shuffled" -t "../inputs/news/news.2007.en.shuffled" --srcemb '../inputs/word_embs/cc.de.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_de --cleanfunctgt clean_text_yelp
+python train.py --expid fr_en-noSkipOov-noMinFreq-max12 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp
+python train.py --expid fr_en-noAttn-2lstm-1dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -316,14 +318,16 @@ if force_preproc or not data_cp_path.exists():
                                                                 src_word_emb_path,
                                                                 emb_dim=
                                                                 config_dict['hidden_dim'],
-                                                                skip_oov=config_dict['skip_oov'])
+                                                                skip_oov=config_dict['skip_oov'],
+                                                                min_freq=config_dict['min_word_freq'])
     logger.append_log('building vocabulary for target language ...')
     word2idx_tgt, idx2word_tgt, word_emb_tgt = vocab_from_sents(tgt_sents, pool,
                                                                 extra_tokens_tgt,
                                                                 tgt_word_emb_path,
                                                                 emb_dim=
                                                                 config_dict['hidden_dim'],
-                                                                skip_oov=config_dict['skip_oov'])
+                                                                skip_oov=config_dict['skip_oov'],
+                                                                min_freq=config_dict['min_word_freq'])
 
     data_cp = {'tgt': tgt_sents, 'src': src_sents}
     logger.append_log('finding maximum sentence length...')
@@ -707,6 +711,7 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
                   device=device):
     generator.eval()
     loss = 0
+    bleu = 0
     for x, y in zip(dl_src, dl_tgt):
         x = x[0].to(device)
         y = y[0].to(device)
@@ -718,6 +723,8 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
         for k in range(gen_raw_bt.size(0)):
             loss += loss_ce(gen_raw_bt[k], x[k]).item()
 
+        bleu += 0  # get_bleu_score(gen_out_bt, x)
+
     # log some samples from last batch
     samples = '------------val_samples--------------\n'
     for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False,
@@ -728,7 +735,7 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
 
     logger.append_log(samples)
     generator.train()
-    return loss / len(dl_src)
+    return loss / len(dl_src), bleu / len(dl_src)
 
 
 logger.append_log("***************** Generator *********************")
@@ -1035,17 +1042,17 @@ for epoch in range(resume_epoch, epochs):
                     epoch, epochs, iter_no, len(dl_src_train),
                     np.mean(epoch_loss_G), np.mean(epoch_loss_D),
                     (time.time() - iter_start_time)))
-                if test_mode and iter_no > 2:
+                if test_mode and iter_no > 3:
                     break
 
-            if (iter_no % config_dict['sample_generation_interval_iters'] == 0
-                    or test_mode) and val_split > 0:
+            if (iter_no % config_dict['sample_generation_interval_iters'] == 0)\
+                    and val_split > 0:
                 try:
-                    val_loss = eval_model_dl(generator, dl_src_test,
+                    val_loss, bleu = eval_model_dl(generator, dl_src_test,
                                              dl_tgt_test, word2idx_src,
                                              word2idx_tgt)
-                    logger.append_log('intermediate val loss', val_loss,
-                                      prev_best_loss)
+                    logger.append_log('intermediate val_loss/prev_val/bleu', val_loss,
+                                      prev_best_loss, bleu)
                     if val_loss < prev_best_loss:
                         prev_best_loss = val_loss
                         state = {'epoch': epoch,
@@ -1096,10 +1103,11 @@ for epoch in range(resume_epoch, epochs):
     train_lossesD.append(np.mean(epoch_loss_D))
     train_lossesG.append(np.mean(epoch_loss_G))
 
-    val_loss = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx_src,
+    val_loss, bleu = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx_src,
                              word2idx_tgt) if val_split > 0 else 0
     # train_lossesG[-1]
     writer.add_scalar('loss/val_loss', val_loss, epoch)
+    writer.add_scalar('loss/bleu', bleu, epoch)
 
     if config_dict['gen_lr_sched'] != 'cyclic':
         lr_sched_G.step(val_loss)

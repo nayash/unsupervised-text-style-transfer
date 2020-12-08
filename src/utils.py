@@ -24,6 +24,7 @@ from constants import *
 import multiprocessing as mp
 import random
 from pathlib import Path
+from torchtext.data.metrics import bleu_score
 
 
 def unicodeToAscii(s):
@@ -58,7 +59,7 @@ def clean_text(text):
 def clean_text_yelp(text):
     # text = ''.join(text)
     if text.startswith('URL:') or \
-            re.match('http(s?):\/\/[^\n\s]*', text):
+            re.search(r'http(s?):\/\/[^\n\s]*', text) is not None:
         return None
     text = text.lower()
     text = text.replace(r'\/', ' ')  # e.g. staff/owner => staff owner
@@ -68,6 +69,8 @@ def clean_text_yelp(text):
     text = text.replace('can\'t', 'can not')
     text = text.replace(" n't", ' not')
     text = text.replace(" 's", ' is')
+    text = text.replace(" s ", ' is ')
+    text = text.replace(" re ", ' are ')
     text = text.replace(" 've ", ' have ')
     text = text.replace(" ve ", ' have ')
     text = text.replace(" 'd ", ' would ')
@@ -93,13 +96,20 @@ def clean_text_yelp(text):
 
     text = re.sub(date_regex, 'DATE', text)
     text = re.sub(r'\d+(\.\d+)?', 'NUMBER', text)
+    # print(text.count('NUMBER'), len(text.split(' ')), text.count('NUMBER')/len(text.split(' ')))
+    if text.count('NUMBER')/len(text.split(' ')) >= 0.3:
+        return None
+    if text.count('UNK')/len(text.split(' ')) >= 0.3:
+        return None
+    text = re.sub(r'(NUMBER)+', 'NUMBER', text)
+    text = re.sub(r'(UNK)+', 'UNK', text)
     return text
 
 
 def clean_text_de(text):
     # text = ''.join(text)
     if text.startswith('URL:') or text.startswith('Adresse:') or \
-            re.match('http(s?):\/\/.*\.html', text):
+            re.search(r'http(s?):\/\/.*\.html', text) is not None:
         return None
     text = text.lower()
     text = text.replace(r'\/', ' ')  # e.g. staff/owner => staff owner
@@ -120,6 +130,45 @@ def clean_text_de(text):
 
     text = re.sub(date_regex, 'DATUM', text)
     text = re.sub(r'\d+(\.\d+)?', 'NUMMER', text)
+    if text.count('NUMMER')/len(text.split(' ')) >= 0.3:
+        return None
+    if text.count('UNK')/len(text.split(' ')) >= 0.3:
+        return None
+    text = re.sub(r'(NUMMER)+', 'NUMMER', text)
+    text = re.sub(r'(UNK)+', 'UNK', text)
+    return text
+
+
+def clean_text_fr(text):
+    # text = ''.join(text)
+    if text.startswith('URL:') or text.startswith('Adresse:') or \
+            re.search(r'http(s?):\/\/.*\.html', text) is not None:
+        return None
+    text = text.lower()
+    text = text.replace(r'\/', ' ')  # e.g. staff/owner => staff owner
+    text = re.sub(r'(.)\1{2,}', r'\1', text)  # ohhhhkay => okay
+    text = ' '.join(word_tokenize(text))
+    text = text.replace('\\n', ' ').replace("\\","")
+    text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:\/]', ' ', text)
+    text = re.sub(r'[-—_,]', ' ', text)
+    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
+    text = re.sub(r'[()]', '', text)
+    text = re.sub(r'(\.\s?\.)', '.', text)
+    text = re.sub(r"\s+", ' ', text)
+
+    month_names = '|'.join([calendar.month_name[i].lower()
+                            for i in range(1, 13)])
+    day_regex = r'\d{1,2}(st|nd|rd|th)'
+    date_regex = day_regex+'\s('+month_names+')'
+
+    text = re.sub(date_regex, 'DATE', text)
+    text = re.sub(r'\d+(\.\d+)?', 'NOMBRE', text)
+    if text.count('NOMBRE')/len(text.split(' ')) >= 0.3:
+        return None
+    if text.count('UNK')/len(text.split(' ')) >= 0.3:
+        return None
+    text = re.sub(r'(NOMBRE)+', 'NOMBRE', text)
+    text = re.sub(r'(UNK)+', 'UNK', text)
     return text
 
 
@@ -341,12 +390,14 @@ def sent_to_tensor(sentence, **kwargs):
 
 
 def vocab_from_sents(sents, pool, extra_tokens, emb_path=None, emb_dim=-1,
-                     skip_oov=True):
+                     skip_oov=True, min_freq=0):
     words = pool.map(word_tokenize, sents)
     words = [w for l in words for w in l]
     count_dict = Counter(words)
-    words = [w for w in count_dict.keys() if count_dict[w] > 3]
-    words = list(set(words))
+    print('total words before filtering', len(count_dict))
+    words = [w for w in count_dict.keys() if count_dict[w] >= min_freq]
+    print('total words after filtering', len(words))
+    words = list(set(words))  # TODO remove redundant call to set. Already used counter
     words.extend(extra_tokens)
     word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
         emb_path, words, pool, extra_tokens, mp.cpu_count(), emb_dim=emb_dim,
@@ -360,3 +411,6 @@ def get_dir_size_mb(path):
     size_bytes = sum(f.stat().st_size for f in path.glob('**/*') if f.is_file())
     return size_bytes/(1024**2)
 
+
+def get_bleu_score(candidates, references, n=4, w=[1/4]*4):
+    return bleu_score(candidates, references, max_n=n, weights=w)
