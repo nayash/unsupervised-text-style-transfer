@@ -107,6 +107,9 @@ python train.py --expid torchAttn_2lstm_smallData -s "./inputs/yelp-reviews-prep
 python train.py --expid de-en-noSkipOov-noMinFreq -s "../inputs/news/news.2007.de.shuffled" -t "../inputs/news/news.2007.en.shuffled" --srcemb '../inputs/word_embs/cc.de.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_de --cleanfunctgt clean_text_yelp
 python train.py --expid fr_en-noSkipOov-noMinFreq-max12 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp
 python train.py --expid fr_en-noAttn-2lstm-1dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid fr_en-Attn-2lstm-decBiDir-max20 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid fr_en-noAtn-2lstm-max15-1dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid sanity_test -s "../inputs/fr-en/src_sanity" -t "../inputs/fr-en/tgt_sanity" --cleanfuncsrc clean_text_yelp --cleanfunctgt clean_text_yelp -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -709,33 +712,40 @@ def eval_model_tensor(generator, x, y, mode, word2idx_src, word2idx_tgt):
 
 def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
                   device=device):
-    generator.eval()
-    loss = 0
-    bleu = 0
-    for x, y in zip(dl_src, dl_tgt):
-        x = x[0].to(device)
-        y = y[0].to(device)
-        gen_out, gen_raw = eval_model_tensor(generator, x, y, src2tgt,
-                                             word2idx_src, word2idx_tgt)
-        gen_out_bt, gen_raw_bt = eval_model_tensor(generator, gen_out, y,
-                                                   tgt2src, word2idx_src,
-                                                   word2idx_tgt)
-        for k in range(gen_raw_bt.size(0)):
-            loss += loss_ce(gen_raw_bt[k], x[k]).item()
+    with torch.no_grad():
+        generator.eval()
+        loss = 0
+        bleu = 0
+        for x, y in zip(dl_src, dl_tgt):
+            x = x[0].to(device)
+            y = y[0].to(device)
+            gen_out, gen_raw = eval_model_tensor(generator, x, y, src2tgt,
+                                                 word2idx_src, word2idx_tgt)
+            gen_out_bt, gen_raw_bt = eval_model_tensor(generator, gen_out, y,
+                                                       tgt2src, word2idx_src,
+                                                       word2idx_tgt)
+            # for k in range(gen_raw_bt.size(0)):
+            #     loss += loss_ce(gen_raw_bt[k], x[k]).item()
 
-        bleu += 0  # get_bleu_score(gen_out_bt, x)
+            loss += nll_loss_wrapper(gen_raw_bt, x, loss_ce).item()
 
-    # log some samples from last batch
-    samples = '------------val_samples--------------\n'
-    for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False,
-                           extras={'idx2word': idx2word_src}),
-                 row_apply(gen_out[::len(gen_out) // 10], tensor_to_sentence,
-                           False, extras={'idx2word': idx2word_tgt})):
-        samples += _[0] + ' --> ' + _[1] + '\n'
+            bleu += 0  # get_bleu_score(gen_out_bt, x)
 
-    logger.append_log(samples)
-    generator.train()
+        # log some samples from last batch
+        samples = '------------val_samples--------------\n'
+        for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False,
+                               extras={'idx2word': idx2word_src}),
+                     row_apply(gen_out[::len(gen_out) // 10], tensor_to_sentence,
+                               False, extras={'idx2word': idx2word_tgt})):
+            samples += _[0] + ' --> ' + _[1] + '\n'
+
+        logger.append_log(samples)
+        generator.train()
     return loss / len(dl_src), bleu / len(dl_src)
+
+
+def nll_loss_wrapper(pred, target, loss_func):
+    return loss_func(pred.permute(0, 2, 1), target)
 
 
 logger.append_log("***************** Generator *********************")
@@ -839,15 +849,17 @@ for epoch in range(resume_epoch, epochs):
                 _, gen_raw, _ = generator(in_src)
                 loss_auto_src = 0
                 # torch.Size([120, 22]) torch.Size([120, 22])
-                for k in range(gen_raw.size(0)):
-                    loss_auto_src += loss_ce(gen_raw[k], org_src[k])
+                # for k in range(gen_raw.size(0)):
+                #     loss_auto_src += loss_ce(gen_raw[k], org_src[k])
+                loss_auto_src = nll_loss_wrapper(gen_raw, org_src, loss_ce)
 
                 ## 1.2 tgt to tgt
                 generator.set_mode(tgt2tgt, word2idx_src, word2idx_tgt)
                 _, gen_raw1, _ = generator(in_tgt)
                 loss_auto_tgt = 0
-                for k in range(gen_raw1.size(0)):
-                    loss_auto_tgt += loss_ce(gen_raw1[k], org_tgt[k])
+                # for k in range(gen_raw1.size(0)):
+                #     loss_auto_tgt += loss_ce(gen_raw1[k], org_tgt[k])
+                loss_auto_tgt = nll_loss_wrapper(gen_raw1, org_tgt, loss_ce)
 
                 loss_auto = (loss_auto_src + loss_auto_tgt)
 
@@ -864,8 +876,9 @@ for epoch in range(resume_epoch, epochs):
                               if noisy_cd_input else gen_out_src)
 
                 loss_cd_s2t = 0
-                for k in range(gen_out_bt_raw.size(0)):
-                    loss_cd_s2t += loss_ce(gen_out_bt_raw[k], org_src[k])
+                # for k in range(gen_out_bt_raw.size(0)):
+                #     loss_cd_s2t += loss_ce(gen_out_bt_raw[k], org_src[k])
+                loss_cd_s2t = nll_loss_wrapper(gen_out_bt_raw, org_src, loss_ce)
 
                 ## 2.2 tgt to src
                 generator.set_mode(tgt2src, word2idx_src, word2idx_tgt)
@@ -878,8 +891,9 @@ for epoch in range(resume_epoch, epochs):
                               if noisy_cd_input else gen_out_tgt)
 
                 loss_cd_t2s = 0
-                for k in range(gen_out_bt_raw1.size(0)):
-                    loss_cd_t2s += loss_ce(gen_out_bt_raw1[k], org_tgt[k])
+                # for k in range(gen_out_bt_raw1.size(0)):
+                #     loss_cd_t2s += loss_ce(gen_out_bt_raw1[k], org_tgt[k])
+                loss_cd_t2s = nll_loss_wrapper(gen_out_bt_raw1, org_tgt, loss_ce)
 
                 loss_cd = (loss_cd_s2t + loss_cd_t2s)
 
@@ -951,7 +965,7 @@ for epoch in range(resume_epoch, epochs):
                     # combine and shuffle both encoder outputs
                     # with autocast():
                     generator.set_mode(src2tgt, word2idx_src, word2idx_tgt)
-                    _, _, enc_out_src1 = generator(in_src)
+                    _, _, enc_out_src1 = generator(in_src)  # TODO add new mode to just return enc_out without doing forward on decoder
 
                     generator.set_mode(tgt2src, word2idx_src, word2idx_tgt)
                     _, _, enc_out_tgt1 = generator(in_tgt)
@@ -1104,7 +1118,7 @@ for epoch in range(resume_epoch, epochs):
     train_lossesG.append(np.mean(epoch_loss_G))
 
     val_loss, bleu = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx_src,
-                             word2idx_tgt) if val_split > 0 else 0
+                             word2idx_tgt) if val_split > 0 else (train_lossesG[-1], 0)
     # train_lossesG[-1]
     writer.add_scalar('loss/val_loss', val_loss, epoch)
     writer.add_scalar('loss/bleu', bleu, epoch)

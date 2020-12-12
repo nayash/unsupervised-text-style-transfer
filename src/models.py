@@ -27,10 +27,12 @@ class Encoder(nn.Module):
         self.layers = layers
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
-        self.emb_src = nn.Embedding(input_size_src, hidden_size)
-        self.emb_tgt = nn.Embedding(input_size_tgt, hidden_size)
-        self.emb_src.load_state_dict({'weight': word_emb_src})
-        self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
+        self.emb_src = word_emb_src
+        self.emb_tgt = word_emb_tgt
+        # self.emb_src = nn.Embedding(input_size_src, hidden_size)
+        # self.emb_tgt = nn.Embedding(input_size_tgt, hidden_size)
+        # self.emb_src.load_state_dict({'weight': word_emb_src})
+        # self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.word_do = nn.Dropout2d(word_do)
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
@@ -92,10 +94,12 @@ class Decoder(nn.Module):
         self.is_enc_dec_diff = enc_bidir != bidirectional or layers != enc_layers
         self.out_size_src = output_size_src
         self.out_size_tgt = output_size_tgt
-        self.emb_src = nn.Embedding(output_size_src, hidden_size)
-        self.emb_src.load_state_dict({'weight': word_emb_src})
-        self.emb_tgt = nn.Embedding(output_size_tgt, hidden_size)
-        self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
+        self.emb_src = word_emb_src
+        self.emb_tgt = word_emb_tgt
+        # self.emb_src = nn.Embedding(output_size_src, hidden_size)
+        # self.emb_src.load_state_dict({'weight': word_emb_src})
+        # self.emb_tgt = nn.Embedding(output_size_tgt, hidden_size)
+        # self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.emb_do = nn.Dropout(emb_do)
         self.lstm = nn.LSTM(self.lstm_in_size(), hidden_size,
                             batch_first=batch_first,
@@ -205,13 +209,17 @@ class GeneratorModel(nn.Module):
         self.bidir_gen = bidir_gen
         self.bidir_dec = bidir_dec
         self.hidden_size = hidden_size
+        self.emb_src = nn.Embedding(input_vocab_src, hidden_size)
+        self.emb_tgt = nn.Embedding(input_vocab_tgt, hidden_size)
+        self.emb_src.load_state_dict({'weight': word_emb_src})
+        self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.encoder = Encoder(input_vocab_src, input_vocab_tgt, hidden_size,
-                               word_emb_src, word_emb_tgt, device,
+                               self.emb_src, self.emb_tgt, device,
                                batch_first=batch_first,
                                bidirectional=bidir_gen, layers=layers_gen,
                                dropout=lstm_do, word_do=word_do)
         self.decoder = Decoder(input_vocab_src, input_vocab_tgt,  hidden_size,
-                               word_emb_src, word_emb_tgt, device,
+                               self.emb_src, self.emb_tgt, device,
                                layers=layers_dec, bidirectional=bidir_dec,
                                batch_first=batch_first, dropout=lstm_do,
                                use_attn=use_attn, emb_do=emb_do,
@@ -246,7 +254,7 @@ class GeneratorModel(nn.Module):
             stack_dim = 0
         # print('stack_dim', stack_dim)  # stack_dim = 1
         out1 = torch.stack(decoder_out, dim=stack_dim)
-        out2 = torch.stack(decoder_raw, dim=stack_dim)  # [120, 22, 1]
+        out2 = torch.stack(decoder_raw, dim=stack_dim)  # [bs, seq_len, vocab]
         # print('gen_out_raw', out2.shape)
         return out1, out2.squeeze(), enc_out
 
@@ -397,17 +405,35 @@ class Attention(nn.Module):
         return output, attention_weights
 
 
-
-# old
-# dec_in torch.Size([100, 1]) torch.Size([4, 100, 200]) torch.Size([4, 100, 200]) torch.Size([100, 11, 400])
-# dec_emb torch.Size([100, 1, 200])
-# dec_lstm_in torch.Size([100, 1, 200])
-# dec_lstm_out torch.Size([100, 1, 400]) torch.Size([4, 100, 200]) torch.Size([4, 100, 200])
-# dec_out torch.Size([100, 1, 41485])
+# class Attention1(nn.Module):
+#     def __init__(self,
+#                  enc_hid_dim: int,
+#                  dec_hid_dim: int,
+#                  attn_dim: int):
+#         super().__init__()
 #
-# generic
-# dec_in torch.Size([120, 1]) torch.Size([2, 120, 200]) torch.Size([2, 120, 200]) torch.Size([120, 22, 400])
-# dec_emb torch.Size([120, 1, 200])
-# dec_lstm_in torch.Size([120, 1, 200])
-# dec_lstm_out torch.Size([120, 1, 400]) torch.Size([2, 120, 200]) torch.Size([2, 120, 200])
-# dec_out torch.Size([120, 1, 8276])
+#         self.enc_hid_dim = enc_hid_dim
+#         self.dec_hid_dim = dec_hid_dim
+#
+#         self.attn_in = (enc_hid_dim * 2) + dec_hid_dim
+#
+#         self.attn = nn.Linear(self.attn_in, attn_dim)
+#
+#     def forward(self,
+#                 decoder_hidden: Tensor,
+#                 encoder_outputs: Tensor) -> Tensor:
+#
+#         src_len = encoder_outputs.shape[0]
+#
+#         repeated_decoder_hidden = decoder_hidden.unsqueeze(1).repeat(1, src_len, 1)
+#
+#         encoder_outputs = encoder_outputs.permute(1, 0, 2)
+#
+#         energy = torch.tanh(self.attn(torch.cat((
+#             repeated_decoder_hidden,
+#             encoder_outputs),
+#             dim = 2)))
+#
+#         attention = torch.sum(energy, dim=2)
+#
+#         return F.softmax(attention, dim=1)

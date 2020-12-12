@@ -201,7 +201,7 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
     idx2word = {}
     word_emb = []
     offset = (batch_size*batch_num)
-    if not emb_path == 'random':
+    if emb_path is not None and emb_path != 'random':
         with open(emb_path) as file:
             for i, line in enumerate(file):
                 split = line.split()
