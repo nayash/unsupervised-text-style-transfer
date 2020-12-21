@@ -125,7 +125,7 @@ np.random.seed(seed)
 ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
 INPUT_PATH = ROOT_PATH / 'inputs'
 OUTPUT_PATH = ROOT_PATH / 'outputs'
-GLOVE_PATH = INPUT_PATH / 'word_embs' / 'glove.6B.200d.txt'
+FT_EMB_PATH = INPUT_PATH / 'word_embs' / 'cc.en.300.vec'
 YELP_PATH = INPUT_PATH / 'yelp-reviews-preprocessed'
 src_sents = 'sentiment.0.all.txt'
 tgt_sents = 'sentiment.1.all.txt'
@@ -138,12 +138,12 @@ arg_parser.add_argument('-s', '--insrc', default=YELP_PATH / src_sents,
 arg_parser.add_argument('-t', '--intgt', default=YELP_PATH / tgt_sents,
                         help='path for target data file with each target \
                         sentence in a new line. Default is yelp dataset')
-arg_parser.add_argument('--srcemb', default=GLOVE_PATH,
+arg_parser.add_argument('--srcemb', default=FT_EMB_PATH,
                         help='path to word embeddings for source language. File'
                              'should be in Glove format without the headers.'
                              'If you don\'t have any embeddings pass "random"'
                              'which would init embeddings to random vectors.'
-                             'Default is ' + str(GLOVE_PATH))
+                             'Default is ' + str(FT_EMB_PATH))
 arg_parser.add_argument('--tgtemb', help='path to word embeddings for target '
                                          'language. should be in Glove format '
                                          'without the headers. If you don\'t '

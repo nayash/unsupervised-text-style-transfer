@@ -22,7 +22,7 @@ python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_f
 ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent
 INPUT_PATH = ROOT_PATH / 'inputs'
 OUTPUT_PATH = ROOT_PATH / 'outputs'
-GLOVE_PATH = INPUT_PATH / 'glove.6B.200d.txt'
+GLOVE_PATH = INPUT_PATH / 'word_embs' / 'cc.en.300.vec'
 YELP_PATH = INPUT_PATH / 'yelp-reviews-preprocessed'
 src_sents = 'sentiment.0.all.txt'
 tgt_sents = 'sentiment.1.all.txt'
@@ -68,6 +68,7 @@ word_emb_tgt = data_cp['word_emb_tgt']
 
 word2idx = word2idx_src if mode == src2tgt else word2idx_tgt
 idx2word = idx2word_tgt if mode == src2tgt else idx2word_src
+
 
 def sent_to_tensor(sentence, word2idx=word2idx, max_len=max_len, type=mode,
                    prefix=None):
