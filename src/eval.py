@@ -15,6 +15,7 @@ from torchtext.data.metrics import bleu_score
 '''
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
 python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.txt --cpfile data_cp8.pk
+python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_fr.txt --cpfile data_cp15.pk
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''
 
@@ -49,7 +50,7 @@ run_id = args.expid
 device = 'cuda:0' if torch.cuda.is_available() and args.device == 'cuda' else 'cpu'
 clean_text_func = locals()[args.cleanfunc]
 run_path = OUTPUT_PATH / 'runs' / run_id
-data_cp_path = OUTPUT_PATH / args.cpfile
+data_cp_path = run_path / args.cpfile
 resume_history = run_path / 'state.pt'
 mode = src2tgt if args.evaltype == 'forward' else tgt2src
 # tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
@@ -113,7 +114,7 @@ generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hi
                bidir_dec=config_dict['bidir_dec'],
                lstm_do=config_dict['lstm_do'],
                use_attn=config_dict['use_attention'],
-               emb_do=config_dict['emb_do'])
+               emb_do=config_dict['emb_do'])  # no word_dropout needed
 
 
 # state = torch.load(resume_history, map_location='cpu')

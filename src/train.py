@@ -9,6 +9,7 @@
 #
 
 import sys
+
 sys.path.append('../src')
 from models import *
 import os
@@ -109,7 +110,10 @@ python train.py --expid fr_en-noSkipOov-noMinFreq-max12 -s "../inputs/fr-en/euro
 python train.py --expid fr_en-noAttn-2lstm-1dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid fr_en-Attn-2lstm-decBiDir-max20 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid fr_en-noAtn-2lstm-max15-1dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
-python train.py --expid sanity_test -s "../inputs/fr-en/src_sanity" -t "../inputs/fr-en/tgt_sanity" --cleanfuncsrc clean_text_yelp --cleanfunctgt clean_text_yelp -r
+python train.py --expid sanity_test1 -s "../inputs/fr-en/src_sanity" -t "../inputs/fr-en/tgt_sanity" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid fr_en-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid temp -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp --cp_vocab '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_cp15.pk' --cp_tensors '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_tensors_cp15.pt' -r
+python train.py --expid fr_en-freezePreEmb-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -194,14 +198,14 @@ arg_parser.add_argument('--genlr', default=-1, type=float,
                              'config.json file value. used only while resuming'
                              'training of a model from saved checkpoints.')
 arg_parser.add_argument('--cp_vocab', default=None,
-                      help='path to saved file with vocabulary. pass this'
-                           'if you want to reuse processed data from a previous'
-                           ' experiment. If None, process data again.')
+                        help='path to saved file with vocabulary. pass this'
+                             'if you want to reuse processed data from a previous'
+                             ' experiment. If None, process data again.')
 arg_parser.add_argument('--cp_tensors', default=None,
-                      help='path to saved file with sentences converted to '
-                           'tensors. pass this if you want to reuse processed '
-                           'data from a previous experiment. If None, process '
-                           'data again.')
+                        help='path to saved file with sentences converted to '
+                             'tensors. pass this if you want to reuse processed '
+                             'data from a previous experiment. If None, process '
+                             'data again.')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
@@ -243,11 +247,11 @@ max_len = config_dict["max_sentence_len"]
 if not args.cp_vocab:
     data_cp_path = run_path / ('data_cp' + str(max_len) + '.pk')
 else:
-    data_cp_path = os.path.abspath(args.cp_vocab)
+    data_cp_path = Path(os.path.abspath(args.cp_vocab))
 if not args.cp_tensors:
     tensors_path = run_path / ('data_tensors_cp' + str(max_len) + '.pt')
 else:
-    tensors_path = os.path.abspath(args.cp_tensors)
+    tensors_path = Path(os.path.abspath(args.cp_tensors))
 logger.append_log('data_cp_path', data_cp_path)
 logger.append_log('tensor_path', tensors_path)
 logger.append_log('input sentences path', src_file_path, tgt_file_path)
@@ -316,23 +320,27 @@ if force_preproc or not data_cp_path.exists():
     extra_tokens_src = [SOS_SRC, 'EOS', 'PAD', 'UNK']
     extra_tokens_tgt = [SOS_TGT, 'EOS', 'PAD', 'UNK']
 
-    word2idx_src, idx2word_src, word_emb_src = vocab_from_sents(src_sents, pool,
-                                                                extra_tokens_src,
-                                                                src_word_emb_path,
-                                                                emb_dim=
-                                                                config_dict['hidden_dim'],
-                                                                skip_oov=config_dict['skip_oov'],
-                                                                min_freq=config_dict['min_word_freq'])
+    word2idx_src, idx2word_src, word_emb_src, oov_words_size_src, pre_trained_emb_size_src = vocab_from_sents(
+        src_sents, pool,
+        extra_tokens_src,
+        src_word_emb_path,
+        emb_dim=
+        config_dict['hidden_dim'],
+        skip_oov=config_dict['skip_oov'],
+        min_freq=config_dict['min_word_freq'])
     logger.append_log('building vocabulary for target language ...')
-    word2idx_tgt, idx2word_tgt, word_emb_tgt = vocab_from_sents(tgt_sents, pool,
-                                                                extra_tokens_tgt,
-                                                                tgt_word_emb_path,
-                                                                emb_dim=
-                                                                config_dict['hidden_dim'],
-                                                                skip_oov=config_dict['skip_oov'],
-                                                                min_freq=config_dict['min_word_freq'])
+    word2idx_tgt, idx2word_tgt, word_emb_tgt, oov_words_size_tgt, pre_trained_emb_size_tgt = vocab_from_sents(
+        tgt_sents, pool,
+        extra_tokens_tgt,
+        tgt_word_emb_path,
+        emb_dim=
+        config_dict['hidden_dim'],
+        skip_oov=config_dict['skip_oov'],
+        min_freq=config_dict['min_word_freq'])
 
-    data_cp = {'tgt': tgt_sents, 'src': src_sents}
+    data_cp = {'tgt': tgt_sents, 'src': src_sents,
+               'oov_src_size': oov_words_size_src,
+               'oov_tgt_size': oov_words_size_tgt}
     logger.append_log('finding maximum sentence length...')
     _ = pool.map(len_word_tokenize, src_sents + tgt_sents) \
         if max_len == -1 else max_len
@@ -349,6 +357,8 @@ if force_preproc or not data_cp_path.exists():
     data_cp['idx2word_tgt'] = idx2word_tgt
     data_cp['word_emb_tgt'] = word_emb_tgt
     data_cp['config_dict'] = config_dict
+    data_cp['pre_trained_emb_size_src'] = pre_trained_emb_size_src
+    data_cp['pre_trained_emb_size_tgt'] = pre_trained_emb_size_tgt
     pickle.dump(data_cp, open(str(data_cp_path), 'wb'))
     logger.append_log('saved cleaned up sentences at {}, file size {}\
             KB'.format(str(data_cp_path), data_cp_path.stat().st_size // 1024))
@@ -368,6 +378,10 @@ word2idx_tgt = data_cp['word2idx_tgt']
 idx2word_tgt = data_cp['idx2word_tgt']
 word_emb_tgt = data_cp['word_emb_tgt']
 config_dict_prev = data_cp['config_dict']
+oov_words_size_src = data_cp['oov_src_size']
+oov_words_size_tgt = data_cp['oov_tgt_size']
+pre_trained_emb_size_src = data_cp['pre_trained_emb_size_src']
+pre_trained_emb_size_tgt = data_cp['pre_trained_emb_size_tgt']
 
 # assert config_dict == config_dict_prev, 'the configuration with which model was ' \
 #                                         'trained and current configuration are ' \
@@ -497,6 +511,7 @@ def log_samples_text_interm(samples, epoch):
             text += cd1 + '\n' + cd2 + '\n\n'
         text += '\n*********************\n'
     return text
+
 
 # pool.close()
 # pool = mp.Pool(2)
@@ -733,10 +748,13 @@ def eval_model_dl(generator, dl_src, dl_tgt, word2idx_src, word2idx_tgt,
 
         # log some samples from last batch
         samples = '------------val_samples--------------\n'
-        for _ in zip(row_apply(x[::len(x) // 10], tensor_to_sentence, False,
-                               extras={'idx2word': idx2word_src}),
-                     row_apply(gen_out[::len(gen_out) // 10], tensor_to_sentence,
-                               False, extras={'idx2word': idx2word_tgt})):
+        for _ in zip(
+                row_apply(x[::len(x) // min(10, len(x))], tensor_to_sentence,
+                          False,
+                          extras={'idx2word': idx2word_src}),
+                row_apply(gen_out[::len(gen_out) // min(10, len(x))],
+                          tensor_to_sentence,
+                          False, extras={'idx2word': idx2word_tgt})):
             samples += _[0] + ' --> ' + _[1] + '\n'
 
         logger.append_log(samples)
@@ -815,6 +833,8 @@ if not skip_disc:
 # scaler = GradScaler()
 
 zero_tensor = torch.tensor(0)
+emb_src_size = generator.emb_src.weight.size(0)
+emb_tgt_size = generator.emb_tgt.weight.size(0)
 
 for epoch in range(resume_epoch, epochs):
     epoch_loss_G = []
@@ -893,7 +913,8 @@ for epoch in range(resume_epoch, epochs):
                 loss_cd_t2s = 0
                 # for k in range(gen_out_bt_raw1.size(0)):
                 #     loss_cd_t2s += loss_ce(gen_out_bt_raw1[k], org_tgt[k])
-                loss_cd_t2s = nll_loss_wrapper(gen_out_bt_raw1, org_tgt, loss_ce)
+                loss_cd_t2s = nll_loss_wrapper(gen_out_bt_raw1, org_tgt,
+                                               loss_ce)
 
                 loss_cd = (loss_cd_s2t + loss_cd_t2s)
 
@@ -927,12 +948,26 @@ for epoch in range(resume_epoch, epochs):
             with profiler.record_function("back & step"):
                 # scaler.scale(lossG).backward()
                 lossG.backward()
+                # print('test1', oov_words_size_src, generator.emb_src.weight.grad[-oov_words_size_src:, -10:])
+                # print('test1', ((generator.emb_src.weight.grad[-oov_words_size_src:] > 0).sum(dim=1)>0).sum())
+
+                # train only the words which were randomly initialized/
+                # not found in pretrained embeddings
+                if args.srcemb != 'random':
+                    generator.emb_src.weight.grad[
+                        :(emb_src_size - oov_words_size_src), :pre_trained_emb_size_src] = 0
+
+                if args.tgtemb != 'random':
+                    generator.emb_tgt.weight.grad[
+                        :(emb_tgt_size - oov_words_size_tgt), :pre_trained_emb_size_tgt] = 0
 
                 # unscale optimizer before grad clipping
                 # scaler.unscale_(optimG)
                 torch.nn.utils.clip_grad_norm_(generator.parameters(),
                                                config_dict['gen_grad_clip'])
-
+                # print('test2', generator.emb_src.weight.grad[-oov_words_size_src:, :5])
+                # print('test2', ((generator.emb_src.weight.grad[-oov_words_size_src:] > 0).sum(
+                #     dim=1) > 0).sum())
                 # scaler.step(optimG)
                 optimG.step()
 
@@ -965,7 +1000,8 @@ for epoch in range(resume_epoch, epochs):
                     # combine and shuffle both encoder outputs
                     # with autocast():
                     generator.set_mode(src2tgt, word2idx_src, word2idx_tgt)
-                    _, _, enc_out_src1 = generator(in_src)  # TODO add new mode to just return enc_out without doing forward on decoder
+                    _, _, enc_out_src1 = generator(
+                        in_src)  # TODO add new mode to just return enc_out without doing forward on decoder
 
                     generator.set_mode(tgt2src, word2idx_src, word2idx_tgt)
                     _, _, enc_out_tgt1 = generator(in_tgt)
@@ -1059,13 +1095,14 @@ for epoch in range(resume_epoch, epochs):
                 if test_mode and iter_no > 3:
                     break
 
-            if (iter_no % config_dict['sample_generation_interval_iters'] == 0)\
+            if (iter_no % config_dict['sample_generation_interval_iters'] == 0) \
                     and val_split > 0:
                 try:
                     val_loss, bleu = eval_model_dl(generator, dl_src_test,
-                                             dl_tgt_test, word2idx_src,
-                                             word2idx_tgt)
-                    logger.append_log('intermediate val_loss/prev_val/bleu', val_loss,
+                                                   dl_tgt_test, word2idx_src,
+                                                   word2idx_tgt)
+                    logger.append_log('intermediate val_loss/prev_val/bleu',
+                                      val_loss,
                                       prev_best_loss, bleu)
                     if val_loss < prev_best_loss:
                         prev_best_loss = val_loss
@@ -1088,7 +1125,7 @@ for epoch in range(resume_epoch, epochs):
                         lr_reduce_counter += 1
                         if lr_reduce_counter > lr_reduce_patience_iter:
                             for zz, g in enumerate(optimG.param_groups):
-                                g['lr'] = g['lr']*lr_reduce_factor_iter
+                                g['lr'] = g['lr'] * lr_reduce_factor_iter
                             logger.append_log('generator LR reduced to',
                                               g['lr'])
                             lr_reduce_counter = 0
@@ -1117,8 +1154,10 @@ for epoch in range(resume_epoch, epochs):
     train_lossesD.append(np.mean(epoch_loss_D))
     train_lossesG.append(np.mean(epoch_loss_G))
 
-    val_loss, bleu = eval_model_dl(generator, dl_src_test, dl_tgt_test, word2idx_src,
-                             word2idx_tgt) if val_split > 0 else (train_lossesG[-1], 0)
+    val_loss, bleu = eval_model_dl(generator, dl_src_test, dl_tgt_test,
+                                   word2idx_src,
+                                   word2idx_tgt) if val_split > 0 else (
+    train_lossesG[-1], 0)
     # train_lossesG[-1]
     writer.add_scalar('loss/val_loss', val_loss, epoch)
     writer.add_scalar('loss/bleu', bleu, epoch)
@@ -1149,7 +1188,8 @@ for epoch in range(resume_epoch, epochs):
     else:
         early_stop_counter += 1
         logger.append_log('early stop counter increament to',
-                          early_stop_counter, '/', early_stop_patience)
+                          early_stop_counter, '/', early_stop_patience,
+                          'prev_best', prev_best_loss, 'curr_loss', val_loss)
 
     torch.save(state, run_path / 'state.pt')
     epoch_summary = 'epoch:{} | train_lossG={}, train_lossD={}, val_loss={},' \

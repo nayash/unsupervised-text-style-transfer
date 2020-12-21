@@ -201,6 +201,7 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
     idx2word = {}
     word_emb = []
     offset = (batch_size*batch_num)
+    pretrained_emb_dim = -1
     if emb_path is not None and emb_path != 'random':
         with open(emb_path) as file:
             for i, line in enumerate(file):
@@ -215,19 +216,21 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
                 word2idx[word] = idx
                 idx2word[idx] = word
                 word_emb.append([float(i) for i in emb])
+                pretrained_emb_dim = len(emb)
                 if len(emb) < emb_dim:
                     word_emb[-1].extend([random.uniform(0, 1) for d in
                                      range(emb_dim-len(emb))])
     else:
         assert emb_dim > 0, "if embedding vectors file is not provided, " \
                             "embedding dimension has to be passed explicitly."
+        pretrained_emb_dim = emb_dim
         for word in words:
             idx = len(word_emb) + offset
             word2idx[word] = idx
             idx2word[idx] = word
             word_emb.append(np.random.randn(emb_dim))
 
-    return word2idx, idx2word, word_emb
+    return word2idx, idx2word, word_emb, pretrained_emb_dim
 
 
 def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
@@ -262,6 +265,7 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
         word2idx.update(_[0])
         idx2word.update(_[1])
         word_emb.extend(_[2])
+        pretrained_emb_dim = _[3]
         prev = _[0]
 
     # now add words from corpus which are missing in Glove embeddings
@@ -278,7 +282,7 @@ def vocab_from_pretrained_emb_parallel(emb_path, words, pool, extra_tokens,
                             idx2word[len(word_emb)], word)
         idx2word[len(word_emb)] = word
         word_emb.append(np.random.uniform(0, 1, len(word_emb[-1])))
-    return word2idx, idx2word, word_emb
+    return word2idx, idx2word, word_emb, len(diff), pretrained_emb_dim
 
 
 def roll_prepend(tensor, prefix_num, dim=1):
@@ -399,11 +403,11 @@ def vocab_from_sents(sents, pool, extra_tokens, emb_path=None, emb_dim=-1,
     print('total words after filtering', len(words))
     words = list(set(words))  # TODO remove redundant call to set. Already used counter
     words.extend(extra_tokens)
-    word2idx, idx2word, word_emb = vocab_from_pretrained_emb_parallel(
+    word2idx, idx2word, word_emb, oov_words_size, pretrained_emb_size = vocab_from_pretrained_emb_parallel(
         emb_path, words, pool, extra_tokens, mp.cpu_count(), emb_dim=emb_dim,
     skip_oov=skip_oov)
 
-    return word2idx, idx2word, word_emb
+    return word2idx, idx2word, word_emb, oov_words_size, pretrained_emb_size
 
 
 def get_dir_size_mb(path):

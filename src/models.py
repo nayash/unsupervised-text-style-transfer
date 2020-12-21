@@ -238,12 +238,13 @@ class GeneratorModel(nn.Module):
             self.get_batch_index(self.batch_first)), device=self.device)
 
         decoder_hidden = h
-
+        # decoder_out.append(decoder_input.squeeze())
         for i in range(enc_out.size(1)):
             out, decoder_hidden = self.decoder(decoder_input, decoder_hidden,
                                                enc_out, i)  # out=> [1, 1, vocab]
             pred, idx = out.topk(1)
             decoder_input = idx.view(idx.size(0), 1)
+
             decoder_out.append(idx.squeeze())
             # print('dec_out_loop', out.shape)  # [*, 120, 1]
             decoder_raw.append(out)
