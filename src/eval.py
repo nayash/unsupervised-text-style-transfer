@@ -16,6 +16,8 @@ from torchtext.data.metrics import bleu_score
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
 python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.txt --cpfile data_cp8.pk
 python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_fr.txt --cpfile data_cp15.pk
+python eval.py --expid st-yelp_freezeEmb -f ../inputs/test_sentences.txt --cpfile data_cp10.pk
+
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''
 
@@ -43,6 +45,7 @@ arg_parser.add_argument('--evaltype', default='forward',
                         help='translate from source to target if value = "forward",'
                              'else reverse.')
 arg_parser.add_argument('--device', default='cuda')
+arg_parser.add_argument('--model', help='file name of saved best model to evaluate')
 
 args = arg_parser.parse_args()
 eval_file_path = os.path.abspath(args.f)
@@ -52,6 +55,7 @@ clean_text_func = locals()[args.cleanfunc]
 run_path = OUTPUT_PATH / 'runs' / run_id
 data_cp_path = run_path / args.cpfile
 resume_history = run_path / 'state.pt'
+best_model_path = run_path / args.model
 mode = src2tgt if args.evaltype == 'forward' else tgt2src
 # tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
 
@@ -99,14 +103,6 @@ word_emb_src = word_emb_src/torch.norm(word_emb_src, dim=1).unsqueeze(-1)
 word_emb_tgt = torch.tensor(word_emb_tgt)
 word_emb_tgt = word_emb_tgt/torch.norm(word_emb_tgt, dim=1).unsqueeze(-1)
 
-# generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
-#                            config_dict['batch_size'], word_emb_src, word_emb_tgt,
-#                            device, layers=config_dict['layers'],
-#                            bidirectional=bool(config_dict['bidir']),
-#                            lstm_do=config_dict['lstm_do'],
-#                            use_attn=config_dict['use_attention'],
-#                            emb_do=config_dict['emb_do'])
-
 generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hidden_dim'],
                config_dict['batch_size'], word_emb_src, word_emb_tgt,
                device, layers_gen=config_dict['layers_gen'],
@@ -119,7 +115,7 @@ generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt), config_dict['hi
 
 
 # state = torch.load(resume_history, map_location='cpu')
-generator.load_state_dict(torch.load(run_path/'best_modelG.pt'))
+generator.load_state_dict(torch.load(best_model_path))
 generator.to(device)
 tensors.to(device)
 generator.eval()

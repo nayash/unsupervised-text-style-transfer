@@ -1118,7 +1118,7 @@ for epoch in range(resume_epoch, epochs):
                                  'iter': iter_no
                                  }
                         torch.save(generator.state_dict(),
-                                   run_path / 'best_modelG.pt')
+                                   run_path / 'best_modelG_{}.pt'.format(epoch))
                         logger.append_log('saved iter best model')
                         lr_reduce_counter = 0
                     else:
@@ -1181,7 +1181,7 @@ for epoch in range(resume_epoch, epochs):
 
     if val_loss < prev_best_loss:
         prev_best_loss = val_loss
-        torch.save(generator.state_dict(), run_path / 'best_modelG.pt')
+        torch.save(generator.state_dict(), run_path / 'best_modelG_{}.pt'.format(epoch))
         logger.append_log('new best val loss {}. State saved.'.format(val_loss))
         early_stop_counter = 0
         lr_reduce_counter = 0
