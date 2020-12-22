@@ -146,7 +146,7 @@ result = eval_model_tensor(generator, tensors, mode)
 candidate_corpus = []
 ref_corpus = []
 for i, line in enumerate(lines):
-    print(line.strip(), '-->', result[i])
+    print(line.strip(), '-->', ' '.join([w for w in result[i].split(' ') if w not in [SOS_TGT, 'EOS', 'PAD']]))
     candidate_corpus.append(word_tokenize(result[i]))
     ref_corpus.append(word_tokenize(line))
-    print('bleu', bleu_score(candidate_corpus, ref_corpus))
+    # print('bleu', bleu_score(candidate_corpus, ref_corpus))
