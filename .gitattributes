@@ -1,1 +1,12 @@
 outputs/runs/st-yelp_freezeEmb/ filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/** filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/best_modelG_epoch2.pt filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/best_modelG.pt filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/logs filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/state.pt filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/data_cp10.pk filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/data_tensors_cp10.pt filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/events.out.tfevents.1608540695.asutosh-Alienware-m15.6946.0 filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/events.out.tfevents.1608575035.asutosh-Alienware-m15.16615.0 filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/events.out.tfevents.1608612659.asutosh-Alienware-m15.23069.0 filter=lfs diff=lfs merge=lfs -text
+outputs/runs/st-yelp_freezeEmb/samples.txt filter=lfs diff=lfs merge=lfs -text
