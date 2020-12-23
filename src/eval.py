@@ -17,6 +17,7 @@ import json
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
 python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.txt --cpfile data_cp8.pk
 python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_fr.txt --cpfile data_cp15.pk
+python eval.py --expid st-yelp_freezeEmb -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_2.pt
 python eval.py --expid st-yelp_freezeEmb-attn -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_1.pt --config '../inputs/config.json' 
 
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
@@ -47,7 +48,7 @@ arg_parser.add_argument('--evaltype', default='forward',
                              'else reverse.')
 arg_parser.add_argument('--device', default='cuda')
 arg_parser.add_argument('--model', help='file name of saved best model to evaluate')
-arg_parser.add_argument('--config', default=INPUT_PATH / 'config.json',
+arg_parser.add_argument('--config',
                         help='configuration/hyperparameters in json format.'
                              ' Default is the config saved with "cpfile"')
 
@@ -64,6 +65,7 @@ mode = src2tgt if args.evaltype == 'forward' else tgt2src
 # tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
 print('best_model_path', best_model_path)
 data_cp = pickle.load(open(str(data_cp_path), 'rb'))
+
 if not args.config:
     config_dict = data_cp['config_dict']
 else:

@@ -154,7 +154,7 @@ arg_parser.add_argument('--tgtemb', help='path to word embeddings for target '
                                          '"srcemb" parameter value is used.')
 arg_parser.add_argument('-c', '--config', default=INPUT_PATH / 'config.json',
                         help='configuration/hyperparameters in json format'
-                        ' Default is '+INPUT_PATH/'config.json')
+                        ' Default is '+str(INPUT_PATH/'config.json'))
 arg_parser.add_argument('-e', '--expid', default='temp',
                         help='identifier for track your experiment. This is\
                         used to create log files folder. All files specific \
@@ -211,9 +211,8 @@ arg_parser.add_argument('--cp_tensors', default=None,
                              'tensors. pass this if you want to reuse processed '
                              'data from a previous experiment. If None, process '
                              'data again. Reusing saves storage and time but '
-                             'avoid it if you are making any model architecture'
-                             ' changes, otherwise eval.py will fail to load the '
-                             'model.')
+                             'avoid it if you want to try any new things like '
+                             'using different "max_len" for sentences.')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
