@@ -17,3 +17,41 @@ and same for eval.py as well. I will skip the full list for brevity. Some notabl
 * try better architectures (may be Transformers?)
 
 P.S. This document will updated gradually with more info.
+
+
+Sample sentence generation on Style Transfer task on Yelp reviews (negative to positive sentiment):
+ food was very bad . --> food was very good .
+
+ room was shit . --> room was awesome .
+
+ service people were not very talented . --> the were were not very friendly .
+
+ weather is horrible . --> weather is amazing .
+
+ the movie had some good moments but overall a bad experience . --> the had had had good good experience a a experience experience .
+
+ hotel was ok . --> hotel was ok .
+
+ pizza was cold and stale . --> pizza was hot and delicious .
+
+ samosa had gone stale . --> the had gone stale .
+
+ the movie was riveting . --> the movie was hilarious .
+
+ the movie was stupid . --> the movie was awesome .
+
+ the movie was good . --> the movie was good .
+
+ laptops are not long lasting . --> the are are not long .
+
+ laptops are too pricey . --> prices are too too .
+
+ mattress was not good for back . --> the was was not for back .
+
+ battery died in one year . --> one in in in year .
+
+ do not buy it . --> do not buy it .
+
+ never buy it . --> definitely buy it .
+
+ highly overrated hotel . --> highly highly hotel .
