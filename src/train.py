@@ -114,6 +114,7 @@ python train.py --expid sanity_test1 -s "../inputs/fr-en/src_sanity" -t "../inpu
 python train.py --expid fr_en-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid temp -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp --cp_vocab '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_cp15.pk' --cp_tensors '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_tensors_cp15.pt' -r
 python train.py --expid fr_en-freezePreEmb-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid st-yelp_freezeEmb-attn -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" --cp_vocab '../outputs/runs/st-yelp_freezeEmb/data_cp10.pk' --cp_tensors '../outputs/runs/st-yelp_freezeEmb/data_tensors_cp10.pt' -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
