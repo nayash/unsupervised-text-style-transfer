@@ -11,12 +11,13 @@ import torch
 from constants import *
 from constants import *
 from torchtext.data.metrics import bleu_score
+import json
 
 '''
 python eval.py --expid torchAttn_2lstm_smallData -f ../inputs/test_sentences.txt --cpfile data_cp-1.pk
 python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.txt --cpfile data_cp8.pk
 python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_fr.txt --cpfile data_cp15.pk
-python eval.py --expid st-yelp_freezeEmb-attn -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_1.pt 
+python eval.py --expid st-yelp_freezeEmb-attn -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_1.pt --config '../inputs/config.json' 
 
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''
@@ -32,12 +33,12 @@ tgt_sents = 'sentiment.1.all.txt'
 arg_parser = argparse.ArgumentParser()
 
 arg_parser.add_argument('--expid', help='experiment id for the model to evaluate')
-arg_parser.add_argument('-f', help='file with sentences to evaluate the model'
-                                   'with')
+arg_parser.add_argument('-f', help='text file with sentences to evaluate the model'
+                                   ' with')
 arg_parser.add_argument('--cleanfunc', default='clean_text_yelp',
                         help='text cleaning function. use the same function '
                              'used for treating training data. for e.g. see '
-                             '"clean_text" func in utils.py. Default = clean_text_yelp')
+                             '"clean_text_yelp" func in utils.py. Default = clean_text_yelp')
 arg_parser.add_argument('--cpfile', default='data_cp8.pk',
                         help='checkpoint file path which holds training vocabulary, '
                              'embeddings etc. default=data_cp8.pk')
@@ -46,6 +47,9 @@ arg_parser.add_argument('--evaltype', default='forward',
                              'else reverse.')
 arg_parser.add_argument('--device', default='cuda')
 arg_parser.add_argument('--model', help='file name of saved best model to evaluate')
+arg_parser.add_argument('--config', default=INPUT_PATH / 'config.json',
+                        help='configuration/hyperparameters in json format.'
+                             ' Default is the config saved with "cpfile"')
 
 args = arg_parser.parse_args()
 eval_file_path = os.path.abspath(args.f)
@@ -60,7 +64,14 @@ mode = src2tgt if args.evaltype == 'forward' else tgt2src
 # tensors_path = OUTPUT_PATH / ('data_tensors_cp'+str(max_len)+'.pt')
 print('best_model_path', best_model_path)
 data_cp = pickle.load(open(str(data_cp_path), 'rb'))
-config_dict = data_cp['config_dict']  # TODO this causes problem for shared data_cp with different architectures
+if not args.config:
+    config_dict = data_cp['config_dict']
+else:
+    config_path = os.path.abspath(args.config)
+    with open(config_path, 'r') as file:
+        _ = file.read()
+        config_dict = json.loads(_)
+
 max_len = data_cp['max_sent_len']
 max_len += 3  # extra tokens for SOSOpType, EOS, PAD
 word2idx_src = data_cp['word2idx_src']
@@ -124,8 +135,9 @@ except Exception as e:
     if best_model_dir != data_cp_dir:
         print('ERROR : cpfile (the checkpoint file which contains model configurations)'
               ' belongs to expid "{}" and best model checkpoint belongs to "{}". '
-              'Please verify if the model weights/configuration is same for both '
-              'expids.'.format(data_cp_dir, best_model_dir))
+              'If error was due to weight mismatch, please verify if the model '
+              'weights/configuration is same for both expids.'.
+              format(data_cp_dir, best_model_dir))
     sys.exit(0)
 
 generator.to(device)
@@ -158,7 +170,8 @@ result = eval_model_tensor(generator, tensors, mode)
 candidate_corpus = []
 ref_corpus = []
 for i, line in enumerate(lines):
-    print(line.strip(), '-->', ' '.join([w for w in result[i].split(' ') if w not in [SOS_TGT, 'EOS', 'PAD']]))
+    print('\n', line.strip(), '-->', ' '.join([w for w in result[i].split(' ')
+                                               if w not in [SOS_TGT, SOS_SRC, 'EOS', 'PAD']]))
     candidate_corpus.append(word_tokenize(result[i]))
     ref_corpus.append(word_tokenize(line))
     # print('bleu', bleu_score(candidate_corpus, ref_corpus))

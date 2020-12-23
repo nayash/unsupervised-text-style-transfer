@@ -153,7 +153,8 @@ arg_parser.add_argument('--tgtemb', help='path to word embeddings for target '
                                          'vectors. If nothing is passed then '
                                          '"srcemb" parameter value is used.')
 arg_parser.add_argument('-c', '--config', default=INPUT_PATH / 'config.json',
-                        help='configuration/hyperparameters in json format')
+                        help='configuration/hyperparameters in json format'
+                        ' Default is '+INPUT_PATH/'config.json')
 arg_parser.add_argument('-e', '--expid', default='temp',
                         help='identifier for track your experiment. This is\
                         used to create log files folder. All files specific \
@@ -166,7 +167,7 @@ arg_parser.add_argument('--cleanfuncsrc', default='clean_text_yelp',
                              'in utils.py, suitable for your data or use one of '
                              'the already implemented functions. function should'
                              ' accept a sentence as argument. for e.g. see '
-                             '"clean_text" func in utils.py. '
+                             '"clean_text_yelp" func in utils.py. '
                              'Default = clean_text_yelp')
 arg_parser.add_argument('--cleanfunctgt', default='clean_text_yelp',
                         help='text cleaning function for tgt sentences.'
@@ -174,7 +175,7 @@ arg_parser.add_argument('--cleanfunctgt', default='clean_text_yelp',
                              'in utils.py, suitable for your data or use one of '
                              'the already implemented functions. function should'
                              ' accept a sentence as argument. for e.g. see '
-                             '"clean_text" func in utils.py. '
+                             '"clean_text_yelp" func in utils.py. '
                              'Default = clean_text_yelp')
 arg_parser.add_argument('-f', '--force', default=False, action='store_true',
                         help='if passed then the data clean up processing \
@@ -185,7 +186,7 @@ arg_parser.add_argument('-r', '--resume', default=False, action='store_true',
                              'states. please note that with this option '
                              'you must pass existing "expid" argument')
 arg_parser.add_argument('--test', default=False, action='store_true',
-                        help='short test run')
+                        help='for short test run')
 arg_parser.add_argument('--device', default='cuda',
                         help='training/inference to be done on this device.'
                              ' supported values are "cuda" (default) or "cpu"')
@@ -201,12 +202,18 @@ arg_parser.add_argument('--genlr', default=-1, type=float,
 arg_parser.add_argument('--cp_vocab', default=None,
                         help='path to saved file with vocabulary. pass this'
                              'if you want to reuse processed data from a previous'
-                             ' experiment. If None, process data again.')
+                             ' experiment. If None, process data again. Reusing '
+                             'saves storage and time but avoid it if you are making'
+                             ' any model architecture changes, otherwise eval.py '
+                             'will fail to load the model.')
 arg_parser.add_argument('--cp_tensors', default=None,
                         help='path to saved file with sentences converted to '
                              'tensors. pass this if you want to reuse processed '
                              'data from a previous experiment. If None, process '
-                             'data again.')
+                             'data again. Reusing saves storage and time but '
+                             'avoid it if you are making any model architecture'
+                             ' changes, otherwise eval.py will fail to load the '
+                             'model.')
 
 args = arg_parser.parse_args()
 src_file_path = os.path.abspath(args.insrc)
@@ -384,12 +391,6 @@ oov_words_size_tgt = data_cp['oov_tgt_size']
 pre_trained_emb_size_src = data_cp['pre_trained_emb_size_src']
 pre_trained_emb_size_tgt = data_cp['pre_trained_emb_size_tgt']
 
-# assert config_dict == config_dict_prev, 'the configuration with which model was ' \
-#                                         'trained and current configuration are ' \
-#                                         'different. please use the same config ' \
-#                                         'to avoid bugs. previous config='+str(config_dict_prev)+\
-#                                         ', \ncurrent config='+str(config_dict)
-
 word_dropout = config_dict['word_dropout']
 noisy_input = bool(config_dict['noisy_input'])
 noisy_cd_input = bool(config_dict['noisy_cd_input'])
@@ -413,10 +414,6 @@ assert word_emb_src.size(-1) == config_dict['hidden_dim'] and \
 
 assert len(word2idx_src) == len(idx2word_src) and \
        len(word2idx_tgt) == len(idx2word_tgt), 'word tokenization wrong'
-
-logger.append_log('src and tgt word embeddings are',
-                  'equal' if torch.equal(word_emb_src,
-                                         word_emb_tgt) else 'not equal')
 
 
 def get_noisy_tensor_grad(tensor, word2idx=None, drop_prob=0.1):
@@ -450,16 +447,13 @@ def weights_init(m):
             for name, param in m.named_parameters():
                 if 'bias' in name:
                     nn.init.constant_(param, 0.0)
-                    # logger.append_log('filled', m)
                 elif 'weight' in name:
                     nn.init.xavier_normal_(param)
-                    # logger.append_log('filled', m)
         else:
             if not isinstance(m, nn.Embedding):
                 init.xavier_normal_(m.weight.data)
-                # logger.append_log('filled', m)
     except:
-        # logger.append_log('failed', m)
+        # layers without weights will fail
         pass
 
 
@@ -949,8 +943,6 @@ for epoch in range(resume_epoch, epochs):
             with profiler.record_function("back & step"):
                 # scaler.scale(lossG).backward()
                 lossG.backward()
-                # print('test1', oov_words_size_src, generator.emb_src.weight.grad[-oov_words_size_src:, -10:])
-                # print('test1', ((generator.emb_src.weight.grad[-oov_words_size_src:] > 0).sum(dim=1)>0).sum())
 
                 # train only the words which were randomly initialized/
                 # not found in pretrained embeddings
@@ -966,9 +958,7 @@ for epoch in range(resume_epoch, epochs):
                 # scaler.unscale_(optimG)
                 torch.nn.utils.clip_grad_norm_(generator.parameters(),
                                                config_dict['gen_grad_clip'])
-                # print('test2', generator.emb_src.weight.grad[-oov_words_size_src:, :5])
-                # print('test2', ((generator.emb_src.weight.grad[-oov_words_size_src:] > 0).sum(
-                #     dim=1) > 0).sum())
+
                 # scaler.step(optimG)
                 optimG.step()
 
