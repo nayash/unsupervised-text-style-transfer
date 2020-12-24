@@ -115,6 +115,8 @@ python train.py --expid fr_en-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/euro
 python train.py --expid temp -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp --cp_vocab '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_cp15.pk' --cp_tensors '../outputs/runs/fr_en-noAtn-6lstm-max15-2dirDec/data_tensors_cp15.pt' -r
 python train.py --expid fr_en-freezePreEmb-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid st-yelp_freezeEmb-attn -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" --cp_vocab '../outputs/runs/st-yelp_freezeEmb/data_cp10.pk' --cp_tensors '../outputs/runs/st-yelp_freezeEmb/data_tensors_cp10.pt' -r
+python train.py --expid fr_en-alignEmb-noAtn-3lstm-max10 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/wiki.fr.align.vec' --tgtemb '../inputs/word_embs/wiki.en.align.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
+python train.py --expid st-yelp_frzEmb-hidDimDiff -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -332,7 +334,7 @@ if force_preproc or not data_cp_path.exists():
         extra_tokens_src,
         src_word_emb_path,
         emb_dim=
-        config_dict['hidden_dim'],
+        config_dict['embedding_dim'],
         skip_oov=config_dict['skip_oov'],
         min_freq=config_dict['min_word_freq'])
     logger.append_log('building vocabulary for target language ...')
@@ -341,7 +343,7 @@ if force_preproc or not data_cp_path.exists():
         extra_tokens_tgt,
         tgt_word_emb_path,
         emb_dim=
-        config_dict['hidden_dim'],
+        config_dict['embedding_dim'],
         skip_oov=config_dict['skip_oov'],
         min_freq=config_dict['min_word_freq'])
 
@@ -405,11 +407,11 @@ word_emb_src = word_emb_src / torch.norm(word_emb_src, dim=1).unsqueeze(-1)
 word_emb_tgt = torch.tensor(word_emb_tgt)
 word_emb_tgt = word_emb_tgt / torch.norm(word_emb_tgt, dim=1).unsqueeze(-1)
 
-assert word_emb_src.size(-1) == config_dict['hidden_dim'] and \
-       word_emb_tgt.size(-1) == config_dict['hidden_dim'], \
+assert word_emb_src.size(-1) == config_dict['embedding_dim'] and \
+       word_emb_tgt.size(-1) == config_dict['embedding_dim'], \
     'dimension of word embedding and hidden size passed in configuration ' \
     'json are different. word embedding dim=' + str(word_emb_src.size(-1)) + \
-    ', hidden dim in config=' + str(config_dict['hidden_dim'])
+    ', emb dim in config=' + str(config_dict['embedding_dim'])
 
 assert len(word2idx_src) == len(idx2word_src) and \
        len(word2idx_tgt) == len(idx2word_tgt), 'word tokenization wrong'
@@ -604,9 +606,8 @@ logger.append_log('train/test size',
 skip_disc = not bool(config_dict['adv_training'])
 
 generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt),
-                           config_dict['hidden_dim'],
-                           config_dict['batch_size'], word_emb_src,
-                           word_emb_tgt,
+                           config_dict['hidden_dim'], config_dict['embedding_dim'],
+                           config_dict['batch_size'], word_emb_src, word_emb_tgt,
                            device, layers_gen=config_dict['layers_gen'],
                            layers_dec=config_dict['layers_dec'],
                            bidir_gen=config_dict['bidir_gen'],

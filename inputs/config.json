@@ -1,9 +1,10 @@
 {
   "batch_size": 100,
-  "batch_preproc_buffer": 100000000.0,
+  "batch_preproc_buffer": 1e8,
   "skip_oov": false,
   "min_word_freq": 3,
-  "hidden_dim": 300,
+  "hidden_dim": 512,
+  "embedding_dim": 300,
   "bidir_gen": true,
   "bidir_dec": true,
   "layers_gen": 3,
@@ -40,12 +41,12 @@
   "noisy_input": true,
   "noisy_cd_input": true,
   "word_dropout": 0.2,
-  "use_attention": true,
+  "use_attention": false,
   "emb_do": 0.2,
   "adv_training": true,
   "max_sentence_len": 10,
-  "max_samples": 2000000.0,
-  "val_split": 0.02,
+  "max_samples": 2e6,
+  "val_split": 0.03,
   "sample_generation_interval_iters": 500,
   "print_samples": true
 }

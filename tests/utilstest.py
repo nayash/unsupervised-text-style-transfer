@@ -26,8 +26,8 @@ class UtilsTest(unittest.TestCase):
             checkpoint = pickle.load(f)
         self.words_src = list(checkpoint['word2idx_src'].keys())
         self.words_tgt = list(checkpoint['word2idx_tgt'].keys())
-        self.emb_path_src = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/word_embs/cc.de.300.vec'
-        self.emb_path_tgt = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/word_embs/cc.en.300.vec'
+        self.emb_path_src = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/word_embs/wiki.fr.align.vec'
+        self.emb_path_tgt = '/home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/inputs/word_embs/wiki.en.align.vec'
         self.pool = mp.Pool(mp.cpu_count())
         self.extra_tokens_src = [SOS_SRC, 'EOS', 'PAD', 'UNK']
         self.extra_tokens_tgt = [SOS_TGT, 'EOS', 'PAD', 'UNK']

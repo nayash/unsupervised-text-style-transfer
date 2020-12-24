@@ -205,18 +205,21 @@ def vocab_from_pretrained_emb(emb_path, words, start=0, end=0, batch_num=0,
     if emb_path is not None and emb_path != 'random':
         with open(emb_path) as file:
             for i, line in enumerate(file):
-                split = line.split()
+                split = line.strip().split()
                 if len(split) == 2:  # skip header
                     continue
-                word = split[0]
+
+                word = split[0].strip()
                 if word not in words:
                     continue
                 emb = split[1:]
                 idx = len(word_emb)+offset
                 word2idx[word] = idx
                 idx2word[idx] = word
+                # isnumeric check to handle space separated characters in some words (e.g. in fasttext wiki aligned emb)
                 word_emb.append([float(i) for i in emb])
                 pretrained_emb_dim = len(emb)
+
                 if len(emb) < emb_dim:
                     word_emb[-1].extend([random.uniform(0, 1) for d in
                                      range(emb_dim-len(emb))])

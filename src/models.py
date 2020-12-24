@@ -17,7 +17,7 @@ from constants import *
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size_src, input_size_tgt, hidden_size,
+    def __init__(self, input_size_src, input_size_tgt, hidden_size, emb_size,
                  word_emb_src, word_emb_tgt, device, batch_first=True,
                  layers=1, bidirectional=False, dropout=0.0, word_do=0.0):
         super(Encoder, self).__init__()
@@ -34,7 +34,7 @@ class Encoder(nn.Module):
         # self.emb_src.load_state_dict({'weight': word_emb_src})
         # self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.word_do = nn.Dropout2d(word_do)
-        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=batch_first,
+        self.lstm = nn.LSTM(emb_size, hidden_size, batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
                             dropout=dropout)  # input_size = len of sequence
         # self.apply(self.weights_init)
@@ -76,7 +76,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, output_size_src, output_size_tgt, hidden_size,
+    def __init__(self, output_size_src, output_size_tgt, hidden_size, emb_size,
                  word_emb_src, word_emb_tgt, device, batch_first=True, layers=1,
                  bidirectional=False, dropout=0.0, use_attn=False, emb_do=0.0,
                  enc_layers=1, enc_bidir=False):
@@ -96,6 +96,7 @@ class Decoder(nn.Module):
         self.out_size_tgt = output_size_tgt
         self.emb_src = word_emb_src
         self.emb_tgt = word_emb_tgt
+        self.emb_size = emb_size
         # self.emb_src = nn.Embedding(output_size_src, hidden_size)
         # self.emb_src.load_state_dict({'weight': word_emb_src})
         # self.emb_tgt = nn.Embedding(output_size_tgt, hidden_size)
@@ -105,9 +106,9 @@ class Decoder(nn.Module):
                             batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
                             dropout=dropout)  # input_size = len of sequence
-        attn_in_size = self.attn_in_size()
+
         if use_attn:
-            self.attention = Attention((1+int(bidirectional))*hidden_size)
+            self.attention = Attention((1+int(bidirectional))*emb_size)
 
         self.linear = nn.Linear((1+int(bidirectional)) * hidden_size,
                                 max(output_size_src, output_size_tgt))
@@ -185,9 +186,9 @@ class Decoder(nn.Module):
         return res
 
     def lstm_in_size(self):
-        res = self.hidden_size
+        res = self.emb_size
         if self.use_attn:
-            res = res * (int(self.bidirectional) + 1) + self.hidden_size
+            res = res * (int(self.bidirectional) + 1) + self.emb_size
         return res
 
     def set_mode(self, mode):
@@ -195,7 +196,7 @@ class Decoder(nn.Module):
 
 
 class GeneratorModel(nn.Module):
-    def __init__(self, input_vocab_src, input_vocab_tgt, hidden_size,
+    def __init__(self, input_vocab_src, input_vocab_tgt, hidden_size, emb_size,
                  batch_size, word_emb_src, word_emb_tgt, device,
                  batch_first=True, layers_gen=1, layers_dec=1, bidir_gen=False,
                  bidir_dec=False, lstm_do=0.0, use_attn=False, emb_do=0,
@@ -209,17 +210,18 @@ class GeneratorModel(nn.Module):
         self.bidir_gen = bidir_gen
         self.bidir_dec = bidir_dec
         self.hidden_size = hidden_size
-        self.emb_src = nn.Embedding(input_vocab_src, hidden_size)
-        self.emb_tgt = nn.Embedding(input_vocab_tgt, hidden_size)
+        self.emb_size = emb_size
+        self.emb_src = nn.Embedding(input_vocab_src, emb_size)
+        self.emb_tgt = nn.Embedding(input_vocab_tgt, emb_size)
         self.emb_src.load_state_dict({'weight': word_emb_src})
         self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.encoder = Encoder(input_vocab_src, input_vocab_tgt, hidden_size,
-                               self.emb_src, self.emb_tgt, device,
+                               emb_size, self.emb_src, self.emb_tgt, device,
                                batch_first=batch_first,
                                bidirectional=bidir_gen, layers=layers_gen,
                                dropout=lstm_do, word_do=word_do)
         self.decoder = Decoder(input_vocab_src, input_vocab_tgt,  hidden_size,
-                               self.emb_src, self.emb_tgt, device,
+                               emb_size, self.emb_src, self.emb_tgt, device,
                                layers=layers_dec, bidirectional=bidir_dec,
                                batch_first=batch_first, dropout=lstm_do,
                                use_attn=use_attn, emb_do=emb_do,
