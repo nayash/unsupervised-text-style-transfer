@@ -1,5 +1,5 @@
 {
-  "batch_size": 100,
+  "batch_size": 70,
   "batch_preproc_buffer": 1e8,
   "skip_oov": false,
   "min_word_freq": 3,
@@ -9,7 +9,7 @@
   "bidir_dec": true,
   "layers_gen": 3,
   "layers_dec": 3,
-  "epoch": 15,
+  "epoch": 50,
   "lstm_do": 0.1,
   "gen_grad_clip": 10,
   "disc_grad_clip": 3,
