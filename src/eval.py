@@ -19,7 +19,8 @@ python eval.py --expid 1dirDec_300emb_largData_max8 -f ../inputs/test_sentences.
 python eval.py --expid fr_en-learnableEmbDim-pt1DO -f ../inputs/test_sentences_fr.txt --cpfile data_cp15.pk
 python eval.py --expid st-yelp_freezeEmb -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_2.pt
 python eval.py --expid st-yelp_freezeEmb-attn -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-yelp_freezeEmb/data_cp10.pk --model best_modelG_1.pt --config '../inputs/config.json'
-python eval.py --expid st-yelp_frzEmb-hidDimDiff -f ../inputs/test_sentences.txt --model best_modelG_14.pt --config '../inputs/config.json' --cpfile '../outputs/runs/st-yelp_frzEmb-hidDimDiff/data_cp10.pk'
+python eval.py --expid st-yelp_frzEmb-hidDimDiff -f ../inputs/test_sentences.txt --config '../inputs/config.json' --cpfile '../outputs/runs/st-yelp_frzEmb-hidDimDiff/data_cp10.pk' --model best_modelG_14.pt
+python eval.py --expid st-yelp_frzEmb-hidDimDiff-adamNeg4 -f ../inputs/test_sentences.txt --config '../inputs/config.json' --cpfile '../outputs/runs/st-yelp_frzEmb-hidDimDiff-adamNeg4/data_cp10.pk' --model best_modelG_49.pt
 
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''
@@ -43,7 +44,7 @@ arg_parser.add_argument('--cleanfunc', default='clean_text_yelp',
                         help='text cleaning function. use the same function '
                              'used for treating training data. for e.g. see '
                              '"clean_text_yelp" func in utils.py. Default = clean_text_yelp')
-arg_parser.add_argument('--cpfile',
+arg_parser.add_argument('--cpfile', default=None,
                         help='checkpoint file path which holds training vocabulary, '
                              'embeddings etc. default=data_cp8.pk')
 arg_parser.add_argument('--evaltype', default='forward',

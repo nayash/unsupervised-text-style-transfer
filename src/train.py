@@ -116,7 +116,7 @@ python train.py --expid temp -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../in
 python train.py --expid fr_en-freezePreEmb-noAtn-6lstm-max15-2dirDec -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/cc.fr.300.vec' --tgtemb '../inputs/word_embs/cc.en.300.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid st-yelp_freezeEmb-attn -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" --cp_vocab '../outputs/runs/st-yelp_freezeEmb/data_cp10.pk' --cp_tensors '../outputs/runs/st-yelp_freezeEmb/data_tensors_cp10.pt' -r
 python train.py --expid fr_en-alignEmb-noAtn-3lstm-max10 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/wiki.fr.align.vec' --tgtemb '../inputs/word_embs/wiki.en.align.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
-python train.py --expid st-yelp_frzEmb-hidDimDiff -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
+python train.py --expid st-yelp_frzEmb-hidDimDiff-adamNeg4 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -761,6 +761,11 @@ def nll_loss_wrapper(pred, target, loss_func):
     return loss_func(pred.permute(0, 2, 1), target)
 
 
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+
 logger.append_log("***************** Generator *********************")
 logger.append_log(str(generator))
 logger.append_log("***************** Discriminator *********************")
@@ -1073,6 +1078,8 @@ for epoch in range(resume_epoch, epochs):
             writer.add_scalar('loss/loss_adv_src', lossSrc.item(), step)
             writer.add_scalar('loss/loss_adv_tgt', lossTgt.item(), step)
             writer.add_scalar('loss/loss_disc', lossD.item(), step)
+            writer.add_scalar('lr/gen', get_lr(optimG), step)
+            writer.add_scalar('lr/disc', get_lr(optimD), step)
             writer.add_scalar('grad/generator', get_grad_norm(generator), step)
             if not skip_disc:
                 writer.add_scalar('grad/discrim', get_grad_norm(lat_clf), step)
