@@ -29,10 +29,6 @@ class Encoder(nn.Module):
         self.bidirectional = bidirectional
         self.emb_src = word_emb_src
         self.emb_tgt = word_emb_tgt
-        # self.emb_src = nn.Embedding(input_size_src, hidden_size)
-        # self.emb_tgt = nn.Embedding(input_size_tgt, hidden_size)
-        # self.emb_src.load_state_dict({'weight': word_emb_src})
-        # self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.word_do = nn.Dropout2d(word_do)
         self.lstm = nn.LSTM(emb_size, hidden_size, batch_first=batch_first,
                             num_layers=layers, bidirectional=bidirectional,
@@ -97,10 +93,6 @@ class Decoder(nn.Module):
         self.emb_src = word_emb_src
         self.emb_tgt = word_emb_tgt
         self.emb_size = emb_size
-        # self.emb_src = nn.Embedding(output_size_src, hidden_size)
-        # self.emb_src.load_state_dict({'weight': word_emb_src})
-        # self.emb_tgt = nn.Embedding(output_size_tgt, hidden_size)
-        # self.emb_tgt.load_state_dict({'weight': word_emb_tgt})
         self.emb_do = nn.Dropout(emb_do)
         self.lstm = nn.LSTM(self.lstm_in_size(), hidden_size,
                             batch_first=batch_first,
@@ -290,22 +282,22 @@ class LatentClassifier(nn.Module):
         self.hidden_nodes = hidden_nodes
 
         self.linear1 = nn.Linear(input_shape, hidden_nodes)
-        self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes / 2))
-        self.linear3 = nn.Linear(int(hidden_nodes / 2), int(hidden_nodes / 8))
+        # self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes / 2))
+        # self.linear3 = nn.Linear(hidden_nodes, int(hidden_nodes / 8))
         # self.linear4 = nn.Linear(int(hidden_nodes/4), int(hidden_nodes/8))
-        self.linear5 = nn.Linear(int(hidden_nodes / 8), int(hidden_nodes / 32))
+        # self.linear5 = nn.Linear(int(hidden_nodes / 8), int(hidden_nodes / 32))
         # self.linear6 = nn.Linear(int(hidden_nodes/16), int(hidden_nodes/32))
-        self.linear7 = nn.Linear(int(hidden_nodes / 32), output_shape)
+        self.linear7 = nn.Linear(hidden_nodes, output_shape)
         self.bn3 = nn.BatchNorm1d(num_features=int(hidden_nodes / 8))
         self.bn5 = nn.BatchNorm1d(num_features=int(hidden_nodes / 32))
         self.lrelu = nn.LeakyReLU(0.2)
 
     def forward(self, input):
         x = self.lrelu(self.linear1(input))
-        x = self.lrelu(self.linear2(x))
-        x = self.lrelu(self.bn3(self.linear3(x)))
+        # x = self.lrelu(self.linear2(x))
+        # x = self.lrelu(self.bn3(self.linear3(x)))
         # x = self.lrelu(self.linear4(x))
-        x = self.lrelu(self.bn5(self.linear5(x)))
+        # x = self.lrelu(self.bn5(self.linear5(x)))
         # x = self.lrelu(self.linear6(x))
         # x = self.sigmoid(self.linear7(x))
         x = self.linear7(x)

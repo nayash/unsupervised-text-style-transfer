@@ -117,6 +117,8 @@ python train.py --expid fr_en-freezePreEmb-noAtn-6lstm-max15-2dirDec -s "../inpu
 python train.py --expid st-yelp_freezeEmb-attn -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" --cp_vocab '../outputs/runs/st-yelp_freezeEmb/data_cp10.pk' --cp_tensors '../outputs/runs/st-yelp_freezeEmb/data_tensors_cp10.pt' -r
 python train.py --expid fr_en-alignEmb-noAtn-3lstm-max10 -s "../inputs/fr-en/europarl-v7.fr-en.fr" -t "../inputs/fr-en/europarl-v7.fr-en.en" --srcemb '../inputs/word_embs/wiki.fr.align.vec' --tgtemb '../inputs/word_embs/wiki.en.align.vec' --cleanfuncsrc clean_text_fr --cleanfunctgt clean_text_yelp -r
 python train.py --expid st-yelp_frzEmb-hidDimDiff-adamNeg4 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
+python train.py --expid st-largerGen-cyclicLR45 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
+python train.py --expid st-normalGen-smallerDisc-cyclicLR54 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -463,10 +465,10 @@ def isNan(tensor):
 
 
 def standard_scaler(tensor):
-    with torch.no_grad():
-        means = tensor.mean(dim=0)
-        stds = tensor.std(dim=0) + 1e-8
-        return (tensor - means) / stds
+    # with torch.no_grad():
+    means = tensor.mean(dim=0)
+    stds = tensor.std(dim=0) + 1e-8
+    return (tensor - means) / stds
 
 
 def get_grad_norm(model):
@@ -866,7 +868,7 @@ for epoch in range(resume_epoch, epochs):
             with profiler.record_function("auto-encode"):
                 ## 1.1 src to src
                 generator.set_mode(src2src, word2idx_src, word2idx_tgt)
-                _, gen_raw, _ = generator(in_src)
+                _, gen_raw, enc_out_auto_src = generator(in_src)
                 loss_auto_src = 0
                 # torch.Size([120, 22]) torch.Size([120, 22])
                 # for k in range(gen_raw.size(0)):
@@ -875,7 +877,7 @@ for epoch in range(resume_epoch, epochs):
 
                 ## 1.2 tgt to tgt
                 generator.set_mode(tgt2tgt, word2idx_src, word2idx_tgt)
-                _, gen_raw1, _ = generator(in_tgt)
+                _, gen_raw1, enc_out_auto_tgt = generator(in_tgt)
                 loss_auto_tgt = 0
                 # for k in range(gen_raw1.size(0)):
                 #     loss_auto_tgt += loss_ce(gen_raw1[k], org_tgt[k])
@@ -887,7 +889,7 @@ for epoch in range(resume_epoch, epochs):
             with profiler.record_function("cross-domain"):
                 ## 2.1 src to tgt
                 generator.set_mode(src2tgt, word2idx_src, word2idx_tgt)
-                gen_out_src, _, enc_out_src = generator(org_src)
+                gen_out_src, _, enc_out_cd_src = generator(org_src)
 
                 generator.set_mode(tgt2src, word2idx_src, word2idx_tgt)
                 gen_bt_src2tgt, gen_out_bt_raw, _ = \
@@ -902,7 +904,7 @@ for epoch in range(resume_epoch, epochs):
 
                 ## 2.2 tgt to src
                 generator.set_mode(tgt2src, word2idx_src, word2idx_tgt)
-                gen_out_tgt, _, enc_out_tgt = generator(org_tgt)
+                gen_out_tgt, _, enc_out_cd_tgt = generator(org_tgt)
 
                 generator.set_mode(src2tgt, word2idx_src, word2idx_tgt)
                 gen_bt_tgt2src, gen_out_bt_raw1, _ = \
@@ -925,21 +927,38 @@ for epoch in range(resume_epoch, epochs):
                 # enc_out_src with tgt_label and vice versa
 
                 if not skip_disc:
-                    enc_out_src = enc_out_src.reshape(enc_out_src.size(0), -1)
+                    # adversarial for auto encoding
+                    enc_out_src = enc_out_src.reshape(
+                        enc_out_src.size(0), -1)
                     enc_out_src = standard_scaler(enc_out_src)
                     disc_out = lat_clf(enc_out_src)  # (batch_size, )
-                    lossSrc = loss_disc(disc_out, tgt_label_vec)
+                    loss_auto_adv_src = loss_disc(disc_out, tgt_label_vec)
 
-                    enc_out_tgt = enc_out_tgt.reshape(enc_out_tgt.size(0), -1)
+                    enc_out_tgt = enc_out_tgt.reshape(
+                        enc_out_tgt.size(0), -1)
                     enc_out_tgt = standard_scaler(enc_out_tgt)
                     disc_out1 = lat_clf(enc_out_tgt)
-                    lossTgt = loss_disc(disc_out1, src_label_vec)
+                    loss_auto_adv_tgt = loss_disc(disc_out1, src_label_vec)
 
-                    loss_adv = (lossSrc + lossTgt)
+                    # adversarial for cross domain
+                    enc_out_cd_src = enc_out_cd_src.reshape(enc_out_cd_src.size(0), -1)
+                    enc_out_cd_src = standard_scaler(enc_out_cd_src)
+                    disc_out = lat_clf(enc_out_cd_src)  # (batch_size, )
+                    loss_cd_adv_src = loss_disc(disc_out, tgt_label_vec)
+
+                    enc_out_cd_tgt = enc_out_cd_tgt.reshape(enc_out_cd_tgt.size(0), -1)
+                    enc_out_cd_tgt = standard_scaler(enc_out_cd_tgt)
+                    disc_out1 = lat_clf(enc_out_cd_tgt)
+                    loss_cd_adv_tgt = loss_disc(disc_out1, src_label_vec)
+
+                    loss_adv = (loss_auto_adv_src + loss_auto_adv_tgt +
+                                loss_cd_adv_src + loss_cd_adv_tgt)
                 else:
                     loss_adv = zero_tensor
-                    lossSrc = zero_tensor
-                    lossTgt = zero_tensor
+                    loss_cd_adv_src = zero_tensor
+                    loss_cd_adv_tgt = zero_tensor
+                    loss_auto_adv_src = zero_tensor
+                    loss_auto_adv_tgt = zero_tensor
 
             lossG = lambda_auto * loss_auto + lambda_cd * loss_cd + lambda_adv * loss_adv
             # forward section end
@@ -1075,8 +1094,10 @@ for epoch in range(resume_epoch, epochs):
             writer.add_scalar('loss/loss_auto_tgt', loss_auto_tgt.item(), step)
             writer.add_scalar('loss/loss_cd_s2t', loss_cd_s2t.item(), step)
             writer.add_scalar('loss/loss_cd_t2s', loss_cd_t2s.item(), step)
-            writer.add_scalar('loss/loss_adv_src', lossSrc.item(), step)
-            writer.add_scalar('loss/loss_adv_tgt', lossTgt.item(), step)
+            writer.add_scalar('loss/loss_adv_auto', (loss_auto_adv_src.item()+
+                                                     loss_auto_adv_tgt.item())/2, step)
+            writer.add_scalar('loss/loss_adv_cd', (loss_cd_adv_src.item()+
+                                                   loss_cd_adv_tgt.item())/2, step)
             writer.add_scalar('loss/loss_disc', lossD.item(), step)
             writer.add_scalar('lr/gen', get_lr(optimG), step)
             writer.add_scalar('lr/disc', get_lr(optimD), step)
@@ -1093,7 +1114,7 @@ for epoch in range(resume_epoch, epochs):
                 if test_mode and iter_no > 3:
                     break
 
-            if (iter_no % config_dict['sample_generation_interval_iters'] == 0) \
+            if iter_no % config_dict['sample_generation_interval_iters'] == 0 \
                     and val_split > 0:
                 try:
                     val_loss, bleu = eval_model_dl(generator, dl_src_test,
@@ -1121,7 +1142,7 @@ for epoch in range(resume_epoch, epochs):
                         lr_reduce_counter = 0
                     else:
                         lr_reduce_counter += 1
-                        if lr_reduce_counter > lr_reduce_patience_iter:
+                        if lr_reduce_counter > lr_reduce_patience_iter:  # TODO how to handle cyclic LR
                             for zz, g in enumerate(optimG.param_groups):
                                 g['lr'] = g['lr'] * lr_reduce_factor_iter
                             logger.append_log('generator LR reduced to',
@@ -1216,8 +1237,7 @@ for epoch in range(resume_epoch, epochs):
         if test_mode:
             break
 
-    if early_stop_counter > early_stop_patience and config_dict[
-        'use_early_stop']:
+    if early_stop_counter > early_stop_patience and config_dict['use_early_stop']:
         logger.append_log('stopping early at {} epoch and loss {}'.
                           format(epoch, val_loss))
         break
