@@ -23,6 +23,9 @@ python eval.py --expid st-yelp_frzEmb-hidDimDiff -f ../inputs/test_sentences.txt
 python eval.py --expid st-yelp_frzEmb-hidDimDiff-adamNeg4 -f ../inputs/test_sentences.txt --config '../inputs/config.json' --cpfile '../outputs/runs/st-yelp_frzEmb-hidDimDiff-adamNeg4/data_cp10.pk' --model best_modelG_49.pt
 python eval.py --expid st-largerGen-cyclicLRsame -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-largerGen-cyclicLRsame/data_cp10.pk --model best_modelG_7.pt --config '../inputs/config.json'
 python eval.py --expid st-normalGen-smallerDisc-cyclicLR54 -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-normalGen-smallerDisc-cyclicLR54/data_cp10.pk --model best_modelG_27.pt --config '../inputs/config.json'
+python eval.py --expid st-advAuto-noGradRmvd4Stndrdztn-smlrDisc -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-advAuto-noGradRmvd4Stndrdztn-smlrDisc/data_cp10.pk --model best_modelG_19.pt --config '../inputs/config.json'
+python eval.py --expid st-4lstm-newAttn-2hidDisc-500KData -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-4lstm-newAttn-2hidDisc-500KData/data_cp10.pk --model best_modelG_3.pt --config '../inputs/config.json'
+python eval.py --expid st-3lstm-newAttn-4hidDisc-500KData -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-3lstm-newAttn-4hidDisc-500KData/data_cp10.pk --model best_modelG_2.pt --config '../inputs/config.json'
 
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''

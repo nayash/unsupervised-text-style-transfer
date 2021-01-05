@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2020. Asutosh Nayak (nayak.asutosh@ymail.com)
+# Copyright (c) 2020 - present. Asutosh Nayak (nayak.asutosh@ymail.com)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ class Decoder(nn.Module):
         self.use_attn = use_attn
         self.batch_first = batch_first
         self.bidirectional = bidirectional
-        self.dir_dim = 1+int(bidirectional)
+        self.dir_dim = 1 + int(bidirectional)
         self.layers = layers
         self.hidden_size = hidden_size
         self.enc_layers = enc_layers
@@ -100,16 +100,18 @@ class Decoder(nn.Module):
                             dropout=dropout)  # input_size = len of sequence
 
         if use_attn:
-            self.attention = Attention((1+int(bidirectional))*emb_size)
+            # Attention((1+int(bidirectional))*hidden_size)
+            self.attention = AdditiveAttention(self.dir_dim * hidden_size,
+                                               self.dir_dim * hidden_size)
 
-        self.linear = nn.Linear((1+int(bidirectional)) * hidden_size,
+        self.linear = nn.Linear((int(bidirectional) + 1) * hidden_size,
                                 max(output_size_src, output_size_tgt))
         # self.lrelu = nn.LeakyReLU(0.2)
         self.log_softmax = nn.LogSoftmax(dim=2)
 
     def forward(self, input, hidden, enc_out, position):
-        # input => [batch_size, 1], hidden[0]/[1] => [layers*dir, bs, emb_dim]
-        # enc_out => [bs, max_len, emb_dim*dir]
+        # input => [batch_size, 1], hidden[0]/[1] => [layers*dir, bs, hidden_dim]
+        # enc_out => [bs, max_len, hidden_dim*dir]
         # print('original', hidden[0].shape, hidden[1].shape, enc_out.shape, self.is_enc_dec_diff)
         if position == 0:
             if self.is_enc_dec_diff:
@@ -120,10 +122,13 @@ class Decoder(nn.Module):
                 # print('1_', h0.shape, h1.shape)
                 hidden = (h0[-self.layers:, :self.dir_dim].
                           view(-1, input.size(0), self.hidden_size).contiguous()
-                    , h1[-self.layers:, :self.dir_dim].
-                          view(-1, input.size(0), self.hidden_size).contiguous())
-                self.enc_out = enc_out.view(input.size(0), enc_out.size(1), 1+int(self.enc_bidir),
-                             self.hidden_size).mean(2)  # [:, :, 0, :]  # keep only forward hidden
+                          , h1[-self.layers:, :self.dir_dim].
+                          view(-1, input.size(0),
+                               self.hidden_size).contiguous())
+                self.enc_out = enc_out.view(input.size(0), enc_out.size(1),
+                                            1 + int(self.enc_bidir),
+                                            self.hidden_size).mean(
+                    2)  # [:, :, 0, :]  # keep only forward hidden
             else:
                 self.enc_out = enc_out
 
@@ -142,10 +147,13 @@ class Decoder(nn.Module):
         if self.use_attn:
             # Bahdanau's attention
             h = hidden[0].view(self.layers, self.dir_dim,
-                               input.size(0), self.hidden_size)[-1]  # [dir, bs, dim]
-            h = h.permute(1, 0, 2).reshape(input.size(0), 1, -1)  # [bs, 1, dir*emb_dim]
-            lstm_in, attn_wts = self.attention(h, self.enc_out)  # [bs, 1, dir*emb]
-            lstm_in = torch.cat((lstm_in, emb), -1)  # [bs, 1, dir*emb+emb]
+                               input.size(0), self.hidden_size)[
+                -1]  # [dir, bs, dim]
+            h = h.permute(1, 0, 2).reshape(input.size(0), 1,
+                                           -1)  # [bs, 1, dir*hidden_dim]
+            lstm_in = self.attention(h, self.enc_out)  # [bs, 1, dir*hidden_dim]
+            lstm_in = torch.cat((lstm_in, emb),
+                                -1)  # [bs, 1, dir*hidden_dim+emb_dim]
         else:
             lstm_in = emb
 
@@ -180,7 +188,8 @@ class Decoder(nn.Module):
     def lstm_in_size(self):
         res = self.emb_size
         if self.use_attn:
-            res = res * (int(self.bidirectional) + 1) + self.emb_size
+            res = self.hidden_size * (
+                        int(self.bidirectional) + 1) + self.emb_size
         return res
 
     def set_mode(self, mode):
@@ -212,7 +221,7 @@ class GeneratorModel(nn.Module):
                                batch_first=batch_first,
                                bidirectional=bidir_gen, layers=layers_gen,
                                dropout=lstm_do, word_do=word_do)
-        self.decoder = Decoder(input_vocab_src, input_vocab_tgt,  hidden_size,
+        self.decoder = Decoder(input_vocab_src, input_vocab_tgt, hidden_size,
                                emb_size, self.emb_src, self.emb_tgt, device,
                                layers=layers_dec, bidirectional=bidir_dec,
                                batch_first=batch_first, dropout=lstm_do,
@@ -235,7 +244,8 @@ class GeneratorModel(nn.Module):
         # decoder_out.append(decoder_input.squeeze())
         for i in range(enc_out.size(1)):
             out, decoder_hidden = self.decoder(decoder_input, decoder_hidden,
-                                               enc_out, i)  # out=> [1, 1, vocab]
+                                               enc_out,
+                                               i)  # out=> [1, 1, vocab]
             pred, idx = out.topk(1)
             decoder_input = idx.view(idx.size(0), 1)
 
@@ -275,129 +285,164 @@ class GeneratorModel(nn.Module):
 
 
 class LatentClassifier(nn.Module):
-    def __init__(self, input_shape, output_shape, hidden_nodes):
+    def __init__(self, input_shape, output_size, hidden_nodes,
+                 num_layers):
         super(LatentClassifier, self).__init__()
         self.input_shape = input_shape
-        self.output_shape = output_shape
+        self.output_shape = output_size
         self.hidden_nodes = hidden_nodes
 
-        self.linear1 = nn.Linear(input_shape, hidden_nodes)
-        # self.linear2 = nn.Linear(hidden_nodes, int(hidden_nodes / 2))
-        # self.linear3 = nn.Linear(hidden_nodes, int(hidden_nodes / 8))
-        # self.linear4 = nn.Linear(int(hidden_nodes/4), int(hidden_nodes/8))
-        # self.linear5 = nn.Linear(int(hidden_nodes / 8), int(hidden_nodes / 32))
-        # self.linear6 = nn.Linear(int(hidden_nodes/16), int(hidden_nodes/32))
-        self.linear7 = nn.Linear(hidden_nodes, output_shape)
-        self.bn3 = nn.BatchNorm1d(num_features=int(hidden_nodes / 8))
-        self.bn5 = nn.BatchNorm1d(num_features=int(hidden_nodes / 32))
-        self.lrelu = nn.LeakyReLU(0.2)
+        assert num_layers > 0
+        self.layers = []
+        for i in range(num_layers):
+            input_size = input_shape if i == 0 else hidden_nodes // (
+                    2 ** (i - 1))
+            output_size = hidden_nodes // (2 ** i) \
+                if i < num_layers - 1 else self.output_shape
+            self.layers.append(nn.Linear(input_size, output_size))
+            if i < num_layers - 1:
+                self.layers.append(nn.LeakyReLU(0.2))
+
+        self.sequential_module = nn.Sequential(*self.layers)
 
     def forward(self, input):
-        x = self.lrelu(self.linear1(input))
-        # x = self.lrelu(self.linear2(x))
-        # x = self.lrelu(self.bn3(self.linear3(x)))
-        # x = self.lrelu(self.linear4(x))
-        # x = self.lrelu(self.bn5(self.linear5(x)))
-        # x = self.lrelu(self.linear6(x))
-        # x = self.sigmoid(self.linear7(x))
-        x = self.linear7(x)
+        x = self.sequential_module(input)
         return x.squeeze()
 
     def weights_init(self, m):
         init.xavier_uniform_(m.weight.data)
 
 
-class Attention(nn.Module):
-    """ Applies attention mechanism on the `context` using the `query`.
-
-    **Thank you** to IBM for their initial implementation of :class:`Attention`. Here is
-    their `License
-    <https://github.com/IBM/pytorch-seq2seq/blob/master/LICENSE>`__.
-
-    Args:
-        dimensions (int): Dimensionality of the query and context.
-        attention_type (str, optional): How to compute the attention score:
-
-            * dot: :math:`score(H_j,q) = H_j^T q`
-            * general: :math:`score(H_j, q) = H_j^T W_a q`
-
-    Example:
-
-         >>> attention = Attention(256)
-         >>> query = torch.randn(5, 1, 256)
-         >>> context = torch.randn(5, 5, 256)
-         >>> output, weights = attention(query, context)
-         >>> output.size()
-         torch.Size([5, 1, 256])
-         >>> weights.size()output
-         torch.Size([5, 1, 5])
+class Attention(torch.nn.Module):
+    """
+    https://tomekkorbak.com/2020/06/26/implementing-attention-in-pytorch/
     """
 
-    def __init__(self, dimensions, attention_type='general'):
-        super(Attention, self).__init__()
+    def __init__(self, encoder_dim: int, decoder_dim: int):
+        super().__init__()
+        self.encoder_dim = encoder_dim
+        self.decoder_dim = decoder_dim
 
-        if attention_type not in ['dot', 'general']:
-            raise ValueError('Invalid attention type selected.')
+    def forward(self,
+                query: torch.Tensor,  # [decoder_dim]
+                values: torch.Tensor,  # [seq_length, encoder_dim]
+                ):
+        weights = self._get_weights(query, values)  # [seq_length]
+        weights = torch.nn.functional.softmax(weights, dim=0)  # [bs, seq_len]
+        return torch.bmm(weights.unsqueeze(1),
+                         values)  # [bs, 1, dir*hidden_dim]
 
-        self.attention_type = attention_type
-        if self.attention_type == 'general':
-            self.linear_in = nn.Linear(dimensions, dimensions, bias=False)
 
-        self.linear_out = nn.Linear(dimensions * 2, dimensions, bias=False)
-        self.softmax = nn.Softmax(dim=-1)
-        self.tanh = nn.Tanh()
+class AdditiveAttention(Attention):
 
-    def forward(self, query, context):
-        """
-        Args:
-            query (:class:`torch.FloatTensor` [batch size, output length, dimensions]): Sequence of
-                queries to query the context.
-            context (:class:`torch.FloatTensor` [batch size, query length, dimensions]): Data
-                overwhich to apply the attention mechanism.
+    def __init__(self, encoder_dim, decoder_dim):
+        super().__init__(encoder_dim, decoder_dim)
+        self.v = torch.nn.Parameter(
+            torch.FloatTensor(self.decoder_dim).uniform_(-0.1, 0.1))
+        self.W_1 = torch.nn.Linear(self.decoder_dim, self.decoder_dim)
+        self.W_2 = torch.nn.Linear(self.encoder_dim, self.decoder_dim)
 
-        Returns:
-            :class:`tuple` with `output` and `weights`:
-            * **output** (:class:`torch.LongTensor` [batch size, output length, dimensions]):
-              Tensor containing the attended features.
-            * **weights** (:class:`torch.FloatTensor` [batch size, output length, query length]):
-              Tensor containing attention weights.
-        """
-        batch_size, output_len, dimensions = query.size()
-        query_len = context.size(1)
+    def _get_weights(self,
+                     query: torch.Tensor,  # [decoder_dim]
+                     values: torch.Tensor,  # [seq_length, encoder_dim]
+                     ):
+        query = query.expand(-1, values.size(1),
+                             -1)  # [bs, seq_length, decoder_dim]
+        weights = self.W_1(query) + self.W_2(
+            values)  # [bs, seq_length, decoder_dim]
+        return torch.tanh(weights) @ self.v  # [bs, seq_length]
 
-        if self.attention_type == "general":
-            query = query.reshape(batch_size * output_len, dimensions)
-            query = self.linear_in(query)
-            query = query.reshape(batch_size, output_len, dimensions)
-
-        # TODO: Include mask on PADDING_INDEX?
-
-        # (batch_size, output_len, dimensions) * (batch_size, query_len, dimensions) ->
-        # (batch_size, output_len, query_len)
-        attention_scores = torch.bmm(query, context.transpose(1, 2).contiguous())
-
-        # Compute weights across every context sequence
-        attention_scores = attention_scores.view(batch_size * output_len,
-                                                 query_len)
-        attention_weights = self.softmax(attention_scores)
-        attention_weights = attention_weights.view(batch_size, output_len,
-                                                   query_len)
-
-        # (batch_size, output_len, query_len) * (batch_size, query_len, dimensions) ->
-        # (batch_size, output_len, dimensions)
-        mix = torch.bmm(attention_weights, context)
-
-        # concat -> (batch_size * output_len, 2*dimensions)
-        combined = torch.cat((mix, query), dim=2)
-        combined = combined.view(batch_size * output_len, 2 * dimensions)
-
-        # Apply linear_out on every 2nd dimension of concat
-        # output -> (batch_size, output_len, dimensions)
-        output = self.linear_out(combined).view(batch_size, output_len,
-                                                dimensions)
-        output = self.tanh(output)
-
-        return output, attention_weights
+# class Attention(nn.Module):
+#     """ Applies attention mechanism on the `context` using the `query`.
+#
+#     **Thank you** to IBM for their initial implementation of :class:`Attention`. Here is
+#     their `License
+#     <https://github.com/IBM/pytorch-seq2seq/blob/master/LICENSE>`__.
+#
+#     Args:
+#         dimensions (int): Dimensionality of the query and context.
+#         attention_type (str, optional): How to compute the attention score:
+#
+#             * dot: :math:`score(H_j,q) = H_j^T q`
+#             * general: :math:`score(H_j, q) = H_j^T W_a q`
+#
+#     Example:
+#
+#          >>> attention = Attention(256)
+#          >>> query = torch.randn(5, 1, 256)
+#          >>> context = torch.randn(5, 5, 256)
+#          >>> output, weights = attention(query, context)
+#          >>> output.size()
+#          torch.Size([5, 1, 256])
+#          >>> weights.size()output
+#          torch.Size([5, 1, 5])
+#     """
+#
+#     def __init__(self, dimensions, attention_type='general'):
+#         super(Attention, self).__init__()
+#
+#         if attention_type not in ['dot', 'general']:
+#             raise ValueError('Invalid attention type selected.')
+#
+#         self.attention_type = attention_type
+#         if self.attention_type == 'general':
+#             self.linear_in = nn.Linear(dimensions, dimensions, bias=False)
+#
+#         self.linear_out = nn.Linear(dimensions * 2, dimensions, bias=False)
+#         self.softmax = nn.Softmax(dim=-1)
+#         self.tanh = nn.Tanh()
+#
+#     def forward(self, query, context):
+#         """
+#         Args:
+#             query (:class:`torch.FloatTensor` [batch size, output length, dimensions]): Sequence of
+#                 queries to query the context.
+#             context (:class:`torch.FloatTensor` [batch size, query length, dimensions]): Data
+#                 overwhich to apply the attention mechanism.
+#
+#         Returns:
+#             :class:`tuple` with `output` and `weights`:
+#             * **output** (:class:`torch.LongTensor` [batch size, output length, dimensions]):
+#               Tensor containing the attended features.
+#             * **weights** (:class:`torch.FloatTensor` [batch size, output length, query length]):
+#               Tensor containing attention weights.
+#         """
+#         batch_size, output_len, dimensions = query.size()
+#         query_len = context.size(1)
+#
+#         if self.attention_type == "general":
+#             query = query.reshape(batch_size * output_len, dimensions)
+#             query = self.linear_in(query)
+#             query = query.reshape(batch_size, output_len, dimensions)
+#
+#         # TODO: Include mask on PADDING_INDEX?
+#
+#         # (batch_size, output_len, dimensions) * (batch_size, query_len, dimensions) ->
+#         # (batch_size, output_len, query_len)
+#         attention_scores = torch.bmm(query, context.transpose(1, 2).contiguous())
+#
+#         # Compute weights across every context sequence
+#         attention_scores = attention_scores.view(batch_size * output_len,
+#                                                  query_len)
+#         attention_weights = self.softmax(attention_scores)
+#         attention_weights = attention_weights.view(batch_size, output_len,
+#                                                    query_len)
+#
+#         # (batch_size, output_len, query_len) * (batch_size, query_len, dimensions) ->
+#         # (batch_size, output_len, dimensions)
+#         mix = torch.bmm(attention_weights, context)
+#
+#         # concat -> (batch_size * output_len, 2*dimensions)
+#         combined = torch.cat((mix, query), dim=2)
+#         combined = combined.view(batch_size * output_len, 2 * dimensions)
+#
+#         # Apply linear_out on every 2nd dimension of concat
+#         # output -> (batch_size, output_len, dimensions)
+#         output = self.linear_out(combined).view(batch_size, output_len,
+#                                                 dimensions)
+#         output = self.tanh(output)
+#
+#         return output, attention_weights
 
 
 # class Attention1(nn.Module):

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2020. Asutosh Nayak (nayak.asutosh@ymail.com)
+# Copyright (c) 2020 - present. Asutosh Nayak (nayak.asutosh@ymail.com)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -119,6 +119,9 @@ python train.py --expid fr_en-alignEmb-noAtn-3lstm-max10 -s "../inputs/fr-en/eur
 python train.py --expid st-yelp_frzEmb-hidDimDiff-adamNeg4 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 python train.py --expid st-largerGen-cyclicLR45 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 python train.py --expid st-normalGen-smallerDisc-cyclicLR54 -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
+python train.py --expid st-advAuto-noGradRmvd4Stndrdztn-smlrDisc -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
+python train.py --expid st-4lstm-newAttn-2hidDisc-500KData -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" -r
+python train.py --expid st-3lstm-newAttn-4hidDisc-500KData -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r
@@ -403,6 +406,7 @@ logger.append_log('config_dict:', config_dict)
 logger.append_log('number of samples in source and target are\
  {}, {}'.format(len(src_sents), len(tgt_sents)))
 
+# TODO for style transfer combine both embeddings
 word_emb_src = torch.tensor(word_emb_src)
 word_emb_src = word_emb_src / torch.norm(word_emb_src, dim=1).unsqueeze(-1)
 
@@ -619,9 +623,10 @@ generator = GeneratorModel(len(word2idx_src), len(word2idx_tgt),
                            emb_do=config_dict['emb_do'], word_do=word_dropout)
 
 if not skip_disc:
-    clf_in_shape = max_len * (2 if config_dict['bidir_gen'] else 1) * \
+    clf_in_shape = max_len * (int(config_dict['bidir_gen'])+1) * \
                    config_dict['hidden_dim']
-    lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 1.5))
+    lat_clf = LatentClassifier(clf_in_shape, 1, int(clf_in_shape / 2),
+                               config_dict['disc_hidden_layers'])
     lat_clf.to(device)
     lat_clf.apply(weights_init)
 
@@ -928,16 +933,16 @@ for epoch in range(resume_epoch, epochs):
 
                 if not skip_disc:
                     # adversarial for auto encoding
-                    enc_out_src = enc_out_src.reshape(
-                        enc_out_src.size(0), -1)
-                    enc_out_src = standard_scaler(enc_out_src)
-                    disc_out = lat_clf(enc_out_src)  # (batch_size, )
+                    enc_out_auto_src = enc_out_auto_src.reshape(
+                        enc_out_auto_src.size(0), -1)
+                    enc_out_auto_src = standard_scaler(enc_out_auto_src)
+                    disc_out = lat_clf(enc_out_auto_src)  # (batch_size, )
                     loss_auto_adv_src = loss_disc(disc_out, tgt_label_vec)
 
-                    enc_out_tgt = enc_out_tgt.reshape(
-                        enc_out_tgt.size(0), -1)
-                    enc_out_tgt = standard_scaler(enc_out_tgt)
-                    disc_out1 = lat_clf(enc_out_tgt)
+                    enc_out_auto_tgt = enc_out_auto_tgt.reshape(
+                        enc_out_auto_tgt.size(0), -1)
+                    enc_out_auto_tgt = standard_scaler(enc_out_auto_tgt)
+                    disc_out1 = lat_clf(enc_out_auto_tgt)
                     loss_auto_adv_tgt = loss_disc(disc_out1, src_label_vec)
 
                     # adversarial for cross domain
@@ -1023,14 +1028,16 @@ for epoch in range(resume_epoch, epochs):
 
                     enc_out_src1 = enc_out_src1.detach().reshape(
                         enc_out_src1.size(0), -1)
-                    enc_out_src1 = standard_scaler(enc_out_src1)
+                    with torch.no_grad():
+                        enc_out_src1 = standard_scaler(enc_out_src1)
 
                     enc_out_tgt1 = enc_out_tgt1.detach().reshape(
                         enc_out_tgt1.size(0), -1)
                     if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(
                             enc_out_tgt1.max()).item():
                         logger.append_log('check1', 'nan found')
-                    enc_out_tgt1 = standard_scaler(enc_out_tgt1)  # has nan
+                    with torch.no_grad():
+                        enc_out_tgt1 = standard_scaler(enc_out_tgt1)
                     if torch.isnan(enc_out_tgt1.max()).item() or torch.isinf(
                             enc_out_tgt1.max()).item():
                         logger.append_log('check2', 'nan found')
@@ -1043,11 +1050,8 @@ for epoch in range(resume_epoch, epochs):
                         enc_out_tgt1 += torch.randn(
                             enc_out_tgt1.size(), device=device).uniform_(0, 1)
 
-                        clf_out1 = lat_clf(enc_out_src1)
-                        clf_out2 = lat_clf(enc_out_tgt1)
-                    else:
-                        clf_out1 = lat_clf(enc_out_src1)
-                        clf_out2 = lat_clf(enc_out_tgt1)
+                    clf_out1 = lat_clf(enc_out_src1)
+                    clf_out2 = lat_clf(enc_out_tgt1)
 
                     if np.random.uniform(0, 1) < disc_noise_prob:
                         # add noise to label and input
@@ -1068,7 +1072,9 @@ for epoch in range(resume_epoch, epochs):
                     lossD = (lossD_src + lossD_tgt)
 
                     # scaler.scale(lossD).backward()
+                    # print('test1', next(iter(lat_clf.parameters())).grad is None)
                     lossD.backward()
+                    # print('test2', next(iter(lat_clf.parameters())).grad is None)
                     # scaler.unscale_(optimD)
                     torch.nn.utils.clip_grad_norm_(
                         lat_clf.parameters(), config_dict['disc_grad_clip'])
@@ -1142,7 +1148,8 @@ for epoch in range(resume_epoch, epochs):
                         lr_reduce_counter = 0
                     else:
                         lr_reduce_counter += 1
-                        if lr_reduce_counter > lr_reduce_patience_iter:  # TODO how to handle cyclic LR
+                        if config_dict['gen_lr_sched'] != 'cyclic' and \
+                                lr_reduce_counter > lr_reduce_patience_iter:  # TODO alert users that lr reduce is not allowed for cyclic LR scheduler
                             for zz, g in enumerate(optimG.param_groups):
                                 g['lr'] = g['lr'] * lr_reduce_factor_iter
                             logger.append_log('generator LR reduced to',
@@ -1198,7 +1205,7 @@ for epoch in range(resume_epoch, epochs):
              'last_val_loss': val_loss,
              'iter': 0}
 
-    if val_loss < prev_best_loss:
+    if val_loss < prev_best_loss:  # TODO either remove it or use prev_epoch
         prev_best_loss = val_loss
         torch.save(generator.state_dict(), run_path / 'best_modelG_{}.pt'.format(epoch))
         logger.append_log('new best val loss {}. State saved.'.format(val_loss))
