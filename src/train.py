@@ -26,7 +26,7 @@ import json
 import argparse
 from tqdm.auto import tqdm
 from logger import Logger
-from utils import *
+from utils.utils import *
 from collections import Counter
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -122,6 +122,7 @@ python train.py --expid st-normalGen-smallerDisc-cyclicLR54 -s "../inputs/yelp-r
 python train.py --expid st-advAuto-noGradRmvd4Stndrdztn-smlrDisc -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.org.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.org.txt" -r
 python train.py --expid st-4lstm-newAttn-2hidDisc-500KData -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" -r
 python train.py --expid st-3lstm-newAttn-4hidDisc-500KData -s "../inputs/yelp-reviews-preprocessed/sentiment.0.all.txt" -t "../inputs/yelp-reviews-preprocessed/sentiment.1.all.txt" -r
+python train.py --expid st-2lstm-newAttn-4hidDisc-yelpAmzn -s "../inputs/combined/sentiment.0.txt" -t "../inputs/combined/sentiment.1.txt" -r
 
 command to run from colab:
 !python /content/drive/My\ Drive/projects/unsupervised-text-style-transfer/src/train.py --expid noise_LargerLr -r

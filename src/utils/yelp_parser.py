@@ -13,6 +13,7 @@ import fcntl
 
 """
 https://www.kaggle.com/yelp-dataset/yelp-dataset?select=yelp_academic_dataset_review.json
+multiprocess writing reference: https://stackoverflow.com/questions/13446445/python-multiprocessing-safely-writing-to-a-file
 """
 
 ROOT_PATH = Path(os.path.dirname(os.path.realpath(__file__))).parent

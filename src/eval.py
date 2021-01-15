@@ -1,12 +1,14 @@
-from models import *
+import sys
 import os
+sys.path.append(os.path.abspath('../src'))
+from models import *
 import pickle
 from pathlib import Path
 from nltk.tokenize import sent_tokenize, word_tokenize
 import argparse
 from tqdm.auto import tqdm
 from logger import Logger
-from utils import *
+from utils.utils import *
 import torch
 from constants import *
 from constants import *
@@ -25,7 +27,7 @@ python eval.py --expid st-largerGen-cyclicLRsame -f ../inputs/test_sentences.txt
 python eval.py --expid st-normalGen-smallerDisc-cyclicLR54 -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-normalGen-smallerDisc-cyclicLR54/data_cp10.pk --model best_modelG_27.pt --config '../inputs/config.json'
 python eval.py --expid st-advAuto-noGradRmvd4Stndrdztn-smlrDisc -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-advAuto-noGradRmvd4Stndrdztn-smlrDisc/data_cp10.pk --model best_modelG_19.pt --config '../inputs/config.json'
 python eval.py --expid st-4lstm-newAttn-2hidDisc-500KData -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-4lstm-newAttn-2hidDisc-500KData/data_cp10.pk --model best_modelG_3.pt --config '../inputs/config.json'
-python eval.py --expid st-3lstm-newAttn-4hidDisc-500KData -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-3lstm-newAttn-4hidDisc-500KData/data_cp10.pk --model best_modelG_2.pt --config '../inputs/config.json'
+python eval.py --expid st-2lstm-newAttn-4hidDisc-yelpAmzn -f ../inputs/test_sentences.txt --cpfile ../outputs/runs/st-2lstm-newAttn-4hidDisc-yelpAmzn/data_cp10.pk --model best_modelG_0.pt --config '../inputs/config.json'
 
 /home/asutosh/Documents/ml_projects/unsupervised-text-style-transfer/outputs/runs/1dirDec_300emb_largData_max8
 '''

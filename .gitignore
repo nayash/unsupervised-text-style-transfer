@@ -2,6 +2,8 @@
 /outputs/*
 /inputs/amazon_reviews_raw.txt
 /inputs/pre-trained/*
+/inputs/combined/*
+/inputs/sentiment_classified/*
 /inputs/news/*
 /inputs/fr-en/*
 /inputs/word_embs/*

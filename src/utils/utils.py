@@ -53,7 +53,7 @@ def clean_text(text):
     text = re.sub(date_regex, '<date>', text)
     text = re.sub(r'\d+', '<number>', text)
 
-    return text
+    return text.strip()
 
 
 def clean_text_yelp(text):
@@ -81,9 +81,9 @@ def clean_text_yelp(text):
     text = text.replace('\\n', ' ').replace("\\","")
     text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:\/]', ' ', text)
     text = re.sub(r'[-—_,]', ' ', text)
-    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '..', text)
+    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
     text = re.sub(r'[()]', '', text)
-    text = re.sub(r'(\.\s?\.)', '..', text)
+    text = re.sub(r'(\.\s?\.)', '.', text)
     # text = re.sub(r'\d{1,2}:\d{2} (p\.\s?m\.|a\.\s?m\.)?', '<time>', text)
     # text = re.sub(r"\n+\s*\n+", ' <p> ', text)
     text = re.sub(r"\s+", ' ', text)
@@ -103,7 +103,7 @@ def clean_text_yelp(text):
         return None
     text = re.sub(r'(NUMBER)+', 'NUMBER', text)
     text = re.sub(r'(UNK)+', 'UNK', text)
-    return text
+    return text.strip()
 
 
 def clean_text_de(text):
@@ -118,9 +118,9 @@ def clean_text_de(text):
     text = text.replace('\\n', ' ').replace("\\","")
     text = re.sub(r'[\"\'\`\~\#\$\%\&\+\^\*\“\”\’\‘\:\/]', ' ', text)
     text = re.sub(r'[-—_,]', ' ', text)
-    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '..', text)
+    text = re.sub(r'((\?+)|(\!+)|(;+)|(\.+))', '.', text)
     text = re.sub(r'[()]', '', text)
-    text = re.sub(r'(\.\s?\.)', '..', text)
+    text = re.sub(r'(\.\s?\.)', '.', text)
     text = re.sub(r"\s+", ' ', text)
 
     month_names = '|'.join([calendar.month_name[i].lower()
